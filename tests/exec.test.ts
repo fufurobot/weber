@@ -3,15 +3,19 @@
  * of the browser.
  *
  * Command execution is the most dangerous surface in the product, so the
- * allow-list and the working-directory sandbox are pinned here before the
- * implementation exists.
+ * policy — allow-list, argv handling and working-directory sandbox — is pinned
+ * here and is fully hermetic.
+ *
+ * Tests that actually spawn a process are declared with `e2e(...)` and run
+ * only via `bun run test:e2e` (see tests/helpers.ts).
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ExecService } from "../src/core/exec";
+import { ExecService, allowedBinaries } from "../src/core/exec";
 import { SafePathError } from "../src/core/paths";
+import { e2e } from "./helpers";
 
 let root: string;
 let svc: ExecService;
@@ -29,7 +33,7 @@ describe("toolchain registry", () => {
   test("knows the languages Weber advertises", () => {
     const ids = svc.toolchains().map((t) => t.id).sort();
     expect(ids).toEqual(
-      ["bun", "cargo", "clang", "clangd", "python", "rustc", "wasmchain"].sort(),
+      ["bun", "cargo", "clang", "clangd", "node", "python", "rustc", "wasmchain"].sort(),
     );
   });
 
@@ -41,62 +45,86 @@ describe("toolchain registry", () => {
     }
   });
 
-  test("availability probing does not throw for missing binaries", async () => {
-    const report = await svc.probe();
-    expect(typeof report).toBe("object");
-    // Every advertised toolchain must be reported, present or not.
+  test("the advertised toolchains are themselves allow-listed", () => {
+    // A toolchain we advertise but refuse to run would be a product bug.
     for (const t of svc.toolchains()) {
-      expect(report[t.id]).toBeDefined();
-      expect(typeof report[t.id]!.available).toBe("boolean");
+      expect(allowedBinaries()).toContain(t.command[0]!);
     }
   });
 });
 
-describe("ExecService.run policy", () => {
-  test("refuses a command that is not on the allow-list", async () => {
+describe("ExecService policy — no process is spawned", () => {
+  test("refuses a command that is not on the allow-list", () => {
+    expect(() => svc.authorize(["curl", "http://example.com"])).toThrow(/not allowed/i);
+  });
+
+  test("refuses a binary given as a path", () => {
+    // Prevents reaching an unvetted binary by absolute or relative path.
+    expect(() => svc.authorize(["/usr/bin/env", "sh"])).toThrow(/bare name/i);
+    expect(() => svc.authorize(["..\\evil.exe"])).toThrow(/bare name/i);
+    expect(() => svc.authorize(["./run.sh"])).toThrow(/bare name/i);
+  });
+
+  test("refuses an empty argv", () => {
+    expect(() => svc.authorize([])).toThrow(/empty/i);
+  });
+
+  test("refuses an empty or non-string binary", () => {
+    expect(() => svc.authorize(["  "])).toThrow(/non-empty/i);
+    expect(() => svc.authorize([undefined as unknown as string])).toThrow(/non-empty/i);
+  });
+
+  test("refuses NUL bytes anywhere in argv", () => {
+    expect(() => svc.authorize(["bun", "-e", "a\u0000b"])).toThrow(/NUL/i);
+  });
+
+  test("accepts every allow-listed binary", () => {
+    for (const bin of allowedBinaries()) {
+      expect(() => svc.authorize([bin])).not.toThrow();
+    }
+  });
+
+  test("refuses a working directory outside the workspace", () => {
+    expect(() => svc.resolveCwd("../outside")).toThrow(SafePathError);
+    expect(() => svc.resolveCwd("/etc")).toThrow(SafePathError);
+  });
+
+  test("accepts a working directory inside the workspace", () => {
+    expect(() => svc.resolveCwd("src/app")).not.toThrow();
+    expect(() => svc.resolveCwd("")).not.toThrow();
+    expect(() => svc.resolveCwd(undefined)).not.toThrow();
+  });
+});
+
+describe("ExecService.run — spawns a real process", () => {
+  test("the policy is enforced before anything is spawned", async () => {
+    // Authorisation happens first, so a rejected command never reaches spawn —
+    // which is why this assertion is meaningful even without a spawn.
     await expect(svc.run({ argv: ["curl", "http://example.com"] })).rejects.toThrow(
       /not allowed/i,
     );
-  });
-
-  test("refuses an empty argv", async () => {
     await expect(svc.run({ argv: [] })).rejects.toThrow(/empty/i);
+    await expect(svc.run({ argv: ["bun"], cwd: "../escape" })).rejects.toThrow(SafePathError);
   });
 
-  test("refuses a shell metacharacter smuggled into an argument", async () => {
-    // Even an allowed binary must not be usable as a shell injection vector.
-    await expect(
-      svc.run({ argv: ["bun", "-e", "1; rm -rf /"] }),
-    ).resolves.toBeDefined();
-    // The argument is passed through as data, never interpreted by a shell,
-    // so this completes without executing the `rm`.
-  });
-
-  test("refuses a working directory outside the workspace", async () => {
-    await expect(
-      svc.run({ argv: ["bun", "--version"], cwd: "../outside" }),
-    ).rejects.toThrow(SafePathError);
-  });
-
-  test("runs an allowed command and captures stdout", async () => {
+  e2e("runs an allowed command and captures stdout", async () => {
     const res = await svc.run({ argv: ["bun", "--version"] });
     expect(res.code).toBe(0);
     expect(res.stdout.trim().length).toBeGreaterThan(0);
   });
 
-  test("reports a non-zero exit code without throwing", async () => {
+  e2e("reports a non-zero exit code without throwing", async () => {
     const res = await svc.run({ argv: ["bun", "-e", "process.exit(3)"] });
     expect(res.code).toBe(3);
   });
 
-  test("captures stderr separately", async () => {
-    const res = await svc.run({
-      argv: ["bun", "-e", "console.error('problem')"],
-    });
+  e2e("captures stderr separately from stdout", async () => {
+    const res = await svc.run({ argv: ["bun", "-e", "console.error('problem')"] });
     expect(res.stderr).toContain("problem");
+    expect(res.stdout).not.toContain("problem");
   });
 
-  test("runs in the requested workspace subdirectory", async () => {
+  e2e("runs in the requested workspace subdirectory", async () => {
     const res = await svc.run({
       argv: ["bun", "-e", "console.log(process.cwd())"],
       cwd: "sub",
@@ -104,7 +132,7 @@ describe("ExecService.run policy", () => {
     expect(res.stdout.replace(/\\/g, "/")).toContain("sub");
   });
 
-  test("enforces a timeout", async () => {
+  e2e("enforces a timeout instead of hanging", async () => {
     const res = await svc.run({
       argv: ["bun", "-e", "await new Promise(r => setTimeout(r, 5000))"],
       timeoutMs: 300,
@@ -112,9 +140,21 @@ describe("ExecService.run policy", () => {
     expect(res.timedOut).toBe(true);
   });
 
-  test("never interprets arguments through a shell", async () => {
-    // A metacharacter must arrive as a literal argument.
-    const res = await svc.run({ argv: ["bun", "-e", "console.log(process.argv[1])", "a;b"] });
+  e2e("never interprets arguments through a shell", async () => {
+    // A metacharacter must arrive as a literal argument, not be interpreted.
+    const res = await svc.run({
+      argv: ["bun", "-e", "console.log(process.argv[1])", "a;b"],
+    });
     expect(res.stdout).toContain("a;b");
+  });
+
+  e2e("probe reports availability for every advertised toolchain", async () => {
+    const report = await svc.probe();
+    for (const t of svc.toolchains()) {
+      expect(report[t.id]).toBeDefined();
+      expect(typeof report[t.id]!.available).toBe("boolean");
+    }
+    // Bun is the runtime we are already inside, so it must be present.
+    expect(report["bun"]!.available).toBe(true);
   });
 });
