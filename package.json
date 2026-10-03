@@ -12,6 +12,7 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:e2e": "bun run scripts/test-e2e.ts tests/exec.test.ts",
+    "validate:config": "bun run scripts/validate-config.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
