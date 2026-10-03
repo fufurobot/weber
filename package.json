@@ -1,0 +1,20 @@
+{
+  "name": "weber",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A portable IDE that does TypeScript, Rust, C++ (clang+clangd+wasmchain), and Python (Pyodide) development everywhere.",
+  "license": "AGPL-3.0",
+  "scripts": {
+    "dev": "bun run --hot src/server/main.ts",
+    "start": "bun run src/server/main.ts",
+    "build:web": "bun run scripts/build-web.ts",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  }
+}
