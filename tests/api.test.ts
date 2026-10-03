@@ -188,6 +188,18 @@ describe("tools API", () => {
     const r = await req("POST", "/api/tools/run", { argv: "bun --version" });
     expect(r.status).toBe(400);
   });
+
+  test("reports an OS-level spawn refusal as a result, not an opaque 500", async () => {
+    // In a sandboxed environment the OS may refuse to start a process entirely.
+    // That is an environment condition: it must come back as an explainable
+    // result (exit 126/127), never as "internal error".
+    const r = await req("POST", "/api/tools/run", { argv: ["bun", "--version"] });
+    expect(r.status).toBe(200);
+    expect([0, 126, 127]).toContain(r.json.code);
+    if (r.json.code !== 0) {
+      expect(r.json.stderr.length).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("notebook API", () => {

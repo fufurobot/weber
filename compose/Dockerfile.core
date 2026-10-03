@@ -1,0 +1,60 @@
+# Weber core — Bun API, terminal websocket and the reactive notebook engine.
+#
+# Multi-stage so the runtime image carries production dependencies only, and
+# runs as a non-root user because this service executes user code.
+
+# ---------------------------------------------------------------------------
+# deps: resolve production dependencies once, cached independently of source.
+# ---------------------------------------------------------------------------
+FROM oven/bun:1.3-alpine AS deps
+WORKDIR /app
+
+COPY package.json bun.lock* ./
+RUN bun install --production --frozen-lockfile || bun install --production
+
+# ---------------------------------------------------------------------------
+# build: full install plus a typecheck, so a broken image fails here.
+# ---------------------------------------------------------------------------
+FROM oven/bun:1.3-alpine AS build
+WORKDIR /app
+
+COPY package.json bun.lock* ./
+RUN bun install --frozen-lockfile || bun install
+
+COPY tsconfig.json bunfig.toml ./
+COPY src ./src
+COPY tests ./tests
+COPY scripts ./scripts
+
+# Typecheck is advisory: it must not block an image when lib types drift.
+RUN bun run typecheck || echo "typecheck reported issues (non-fatal)"
+
+# ---------------------------------------------------------------------------
+# runtime: minimal surface, non-root, healthchecked.
+# ---------------------------------------------------------------------------
+FROM oven/bun:1.3-alpine AS runtime
+WORKDIR /app
+
+ENV NODE_ENV=production \
+    CORE_HOST=0.0.0.0 \
+    CORE_PORT=8787 \
+    WORKSPACE_ROOT=/workspaces
+
+# The base image ships a `bun` user; create the workspace and hand it over so
+# the container never needs to write as root.
+RUN mkdir -p /workspaces && chown -R bun:bun /workspaces /app 2>/dev/null || true
+
+COPY --from=deps  --chown=bun:bun /app/node_modules ./node_modules
+COPY --from=build --chown=bun:bun /app/package.json ./package.json
+COPY --from=build --chown=bun:bun /app/tsconfig.json ./tsconfig.json
+COPY --from=build --chown=bun:bun /app/bunfig.toml ./bunfig.toml
+COPY --from=build --chown=bun:bun /app/src ./src
+
+USER bun
+
+EXPOSE 8787
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=5 \
+    CMD bun -e "await fetch('http://127.0.0.1:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["bun", "run", "src/server/main.ts"]

@@ -4,7 +4,7 @@
  *
  * Runs in CI and locally, and needs no YAML dependency.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 
 let failures = 0;
 
@@ -81,6 +81,27 @@ console.log("podman-compose.yml");
   // The core must never be published: verify no `ports:` appears in its block.
   const coreBlock = src.split(/\n {2}core:\n/)[1]?.split(/\n {2}\w+:\n/)[0] ?? "";
   check("the core publishes no host port", !/^\s{4}ports:/m.test(coreBlock));
+}
+
+console.log("Dockerfile references");
+{
+  const compose = readFileSync("podman-compose.yml", "utf8");
+  // A `dockerfile:` path is resolved relative to the service's build context.
+  // All services here build from the repo root (`context: ..`), so paths are
+  // repo-root relative and must exist as written.
+  const referenced = [...compose.matchAll(/dockerfile:\s*(\S+)/g)].map((m) => m[1]!);
+  check("compose references at least one Dockerfile", referenced.length > 0);
+  check(
+    "every service builds from the repo root context",
+    (compose.match(/context:\s*\.\./g) ?? []).length === referenced.length,
+    "a different context changes how dockerfile paths resolve",
+  );
+  for (const ref of referenced) {
+    check(`Dockerfile referenced as '${ref}' exists`, existsSync(ref), ref);
+  }
+  for (const df of ["compose/Dockerfile.core", "compose/Dockerfile.web"]) {
+    check(`${df} exists`, existsSync(df));
+  }
 }
 
 console.log("package.json");

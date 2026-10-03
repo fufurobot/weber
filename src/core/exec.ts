@@ -254,6 +254,12 @@ export class ExecService {
           env: { ...process.env, ...options.env },
         });
       } catch (err) {
+        // Bun may throw the refusal synchronously rather than emitting it.
+        const refusal = spawnRefusal(err, bin);
+        if (refusal) {
+          resolve({ ...refusal, durationMs: Date.now() - started });
+          return;
+        }
         reject(err);
         return;
       }
@@ -302,6 +308,14 @@ export class ExecService {
           });
           return;
         }
+        // The OS refused to start the process at all. This is an environment
+        // condition, not a bad request, so surface it as a result the caller
+        // can explain rather than as an opaque internal error.
+        const refusal = spawnRefusal(err, bin);
+        if (refusal) {
+          resolve({ ...refusal, stdout, stderr: stderr + refusal.stderr, durationMs: Date.now() - started });
+          return;
+        }
         reject(err);
       });
       child.on("close", (code) => finish(code ?? (timedOut ? 124 : 1)));
@@ -341,6 +355,32 @@ export class ExecService {
     );
     return report;
   }
+}
+
+/**
+ * Translate an OS-level refusal to start a process into a runnable result.
+ *
+ * A sandbox (container, seccomp profile, Windows job object) may deny process
+ * creation outright. That is an environment condition rather than a bad
+ * request, so it must reach the caller as an explainable exit code instead of
+ * an opaque 500 that hides why nothing happened.
+ *
+ * Returns null for unrelated errors, which should still throw.
+ */
+function spawnRefusal(
+  err: unknown,
+  bin: string,
+): { code: number; stdout: string; stderr: string; timedOut: boolean } | null {
+  const code = (err as NodeJS.ErrnoException)?.code;
+  if (code !== "EPERM" && code !== "EACCES") return null;
+  return {
+    code: 126,
+    stdout: "",
+    stderr:
+      `${bin}: the operating system refused to start this process (${code}). ` +
+      `If this service runs inside a sandbox, process execution may be restricted here.`,
+    timedOut: false,
+  };
 }
 
 /** Exported for tests and for the API's capability listing. */
