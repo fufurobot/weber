@@ -77,9 +77,27 @@ typings/
 # Yarn Integrity file
 .yarn-integrity
 
-# dotenv environment variables file
+# ---------------------------------------------------------------------------
+# Secrets. NEVER commit real credentials.
+#
+# `.env` and every variant (.env.local, .env.production, compose/.env, ...)
+# is ignored. Only the checked-in templates below are tracked, and they must
+# contain placeholders — never live values.
+# ---------------------------------------------------------------------------
 .env
-.env.test
+.env.*
+*.env
+
+# Credential-ish files that are never needed in this repository.
+*.pem
+*.key
+secrets/
+credentials.json
+service-account*.json
+
+# Templates stay tracked (must be last so they win over the rules above).
+!.env.example
+!*.env.example
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
