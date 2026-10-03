@@ -20,22 +20,30 @@ Everything below has tests that run in the default `bun test` pass.
 | Config validation | `scripts/validate-config.ts` | 15 checks |
 
 ```
-bun test         78 pass, 7 skip, 0 fail
-bun run test:e2e runs only the spawn-dependent tests
+bun test          78 pass, 7 skip, 0 fail
+bun run test:e2e  19 pass, 0 fail
 ```
 
-## Implemented but only verifiable outside a restricted sandbox
+## Implemented and verified, but only outside a restricted sandbox
 
 `src/core/exec.ts` spawns real processes. Its **policy** (allow-list, bare-name
-rule, NUL rejection, cwd confinement) is fully unit-tested and hermetic. Its
-**behaviour** (exit codes, stderr separation, timeouts, shell-immunity, probing)
-is implemented and tested, but the tests require a child process with piped
-stdio, which the DSH Windows sandbox blocks with `EPERM`.
+rule, NUL rejection, cwd confinement) is unit-tested and hermetic, so it runs in
+the default suite.
 
-Those specs are declared with `e2e(...)` and run via `bun run test:e2e`. They
-are expected to pass in a normal shell and on CI; they have **not** been
-observed passing in the environment where this code was written, and are
-reported as skipped rather than passed.
+Its **behaviour** (exit codes, stderr separation, timeouts, shell-immunity,
+toolchain probing) is covered by tests declared with `e2e(...)`, which need a
+child process with piped stdio. Those tests are skipped by default and run via
+`bun run test:e2e`. They pass — but only where process spawning is permitted,
+so a run that skips them proves less than a run that executes them.
+
+Running them is what caught two genuine Windows defects that a restricted
+environment had hidden: bare command names resolving to `cmd.exe`/`sh` shims
+(which reject metacharacter arguments and so broke safe commands), and
+`probe()` reporting absent toolchains as available. Both are fixed; see commit
+`fix(exec): run native executables, not Windows shell shims`.
+
+The lesson is recorded deliberately: **an environment limitation can mask a
+real bug, so a skipped suite must never be read as a passing one.**
 
 ## Not implemented yet
 
