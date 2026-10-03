@@ -10,7 +10,7 @@
  * only via `bun run test:e2e` (see tests/helpers.ts).
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ExecService, allowedBinaries } from "../src/core/exec";
@@ -125,6 +125,8 @@ describe("ExecService.run — spawns a real process", () => {
   });
 
   e2e("runs in the requested workspace subdirectory", async () => {
+    // The directory must exist for the spawn to have a valid cwd.
+    mkdirSync(join(root, "sub"), { recursive: true });
     const res = await svc.run({
       argv: ["bun", "-e", "console.log(process.cwd())"],
       cwd: "sub",

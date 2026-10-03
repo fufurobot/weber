@@ -8,6 +8,8 @@
  *      file service, so a request cannot walk out of the workspace.
  */
 import { spawn } from "node:child_process";
+import { accessSync, constants } from "node:fs";
+import { delimiter, join } from "node:path";
 import { resolveInRoot } from "./paths";
 
 export interface Toolchain {
@@ -73,13 +75,97 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_OUTPUT_BYTES = 1_000_000;
 
 /** Windows resolves executables through these; POSIX needs no suffix. */
-const EXEC_SUFFIXES = process.platform === "win32" ? [".cmd", ".exe", ".bat", ""] : [""];
+const EXEC_SUFFIXES = process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
+
+/** Final path components that must never be selected as a target. */
+const SCRIPT_SHIM_SUFFIXES = process.platform === "win32" ? [".cmd", ".bat"] : [];
+
+/**
+ * Resolve an allow-listed bare name to an absolute executable path.
+ *
+ * On Windows a bare name on PATH is often a *shim*: `bun.cmd` is a batch file
+ * and an extensionless `bun` is a `/bin/sh` script. Spawning either forces the
+ * runtime to route through cmd.exe (or a shell), which then rejects arguments
+ * containing metacharacters such as `;`, `(`, `)` and `&`. That would make
+ * safe, allow-listed commands fail seemingly at random, so only a genuine
+ * native executable is accepted.
+ *
+ * Resolution never widens the allow-list: the caller has already authorised
+ * `bin`, and this only chooses *which* file satisfies it.
+ */
+export function resolveExecutable(bin: string): string | null {
+  const search = (names: string[]): string | null => {
+    const pathVar = process.env.PATH ?? process.env.Path ?? "";
+    const dirs = pathVar.split(delimiter).filter((d) => d.length > 0);
+    for (const name of names) {
+      for (const dir of dirs) {
+        const candidate = join(dir, name);
+        try {
+          accessSync(candidate, constants.X_OK);
+          return candidate;
+        } catch {
+          // not here; keep looking
+        }
+      }
+    }
+    return null;
+  };
+
+  if (process.platform !== "win32") return search([bin]);
+
+  // Native first: `foo.exe`. Anything else would need a shell to run.
+  const native = search([`${bin}.exe`]);
+  if (native) return native;
+
+  // No native binary on PATH. For the runtime we are already running inside,
+  // its own executable is strictly better than a batch or sh shim.
+  const self = selfExecutableFor(bin);
+  if (self) {
+    try {
+      accessSync(self, constants.X_OK);
+      return self;
+    } catch {
+      // fall through
+    }
+  }
+
+  // Last resort: a shim, which run() will refuse rather than execute unsafely.
+  return search([`${bin}.cmd`, `${bin}.bat`]);
+}
+
+/** True when this resolved path needs cmd.exe to run (a batch shim). */
+export function isScriptShim(path: string): boolean {
+  return SCRIPT_SHIM_SUFFIXES.some((s) => path.toLowerCase().endsWith(s));
+}
+
+/**
+ * The interpreter's own binary, when it is a better answer than PATH.
+ *
+ * On Windows `bun` is installed as `bun.cmd`, and Bun's real executable lives
+ * in its lib directory rather than on PATH. Running the real binary avoids
+ * cmd.exe entirely, which is what makes arbitrary arguments safe.
+ */
+function selfExecutableFor(bin: string): string | null {
+  for (const key of ["bun", "node"] as const) {
+    if (bin !== key) continue;
+    const execPath = process.execPath;
+    if (!execPath) return null;
+    // process.execPath is the interpreter running THIS process: prefer it when
+    // the requested binary is that same runtime.
+    const base = execPath.toLowerCase();
+    if (key === "bun" && base.includes("bun")) return execPath;
+    if (key === "node" && base.includes("node")) return execPath;
+  }
+  return null;
+}
 
 export const TOOLCHAINS: Toolchain[] = [
   { id: "bun", label: "Bun / TypeScript", command: ["bun", "--version"], binaries: ["bun"] },
   { id: "node", label: "Node.js", command: ["node", "--version"], binaries: ["node"] },
   { id: "rustc", label: "Rust compiler", command: ["rustc", "--version"], binaries: ["rustc"] },
   { id: "cargo", label: "Cargo", command: ["cargo", "--version"], binaries: ["cargo"] },
+  // clang, clangd and wasmchain answer to `--version`; llvm tools generally do,
+  // but rustc/cargo accept it too. Kept explicit so probing stays testable.
   { id: "clang", label: "Clang C/C++", command: ["clang", "--version"], binaries: ["clang"] },
   { id: "clangd", label: "clangd LSP", command: ["clangd", "--version"], binaries: ["clangd"] },
   {
@@ -92,7 +178,7 @@ export const TOOLCHAINS: Toolchain[] = [
     id: "python",
     label: "Python (Pyodide in-browser, CPython for builds)",
     command: ["python", "--version"],
-    binaries: ["python", "python3"],
+    binaries: ["python3", "python"],
   },
 ];
 
@@ -142,9 +228,25 @@ export class ExecService {
     const started = Date.now();
 
     return await new Promise<RunResult>((resolve, reject) => {
+      // Spawn a resolved native executable so batch/sh shims are avoided; a
+      // shim would force a shell, which defeats argv-as-data.
+      const resolved = resolveExecutable(bin);
+      if (resolved && isScriptShim(resolved)) {
+        resolve({
+          code: 126,
+          stdout: "",
+          stderr:
+            `${bin}: only a shell script shim is installed at ${resolved}. ` +
+            `Weber runs commands without a shell, so a native executable is required.`,
+          timedOut: false,
+          durationMs: Date.now() - started,
+        });
+        return;
+      }
+      const target = resolved ?? bin;
       let child;
       try {
-        child = spawn(bin, options.argv.slice(1), {
+        child = spawn(target, options.argv.slice(1), {
           cwd,
           // No shell: arguments stay data and cannot be re-interpreted.
           shell: false,
@@ -216,19 +318,22 @@ export class ExecService {
     const report: Record<string, ToolchainStatus> = {};
     await Promise.all(
       TOOLCHAINS.map(async (t) => {
-        for (const candidate of candidateCommands(t)) {
-          if (!ALLOWED_BINARIES.has(candidate[0]!)) continue;
+        // A toolchain may be satisfied by any of several binaries (python3 vs
+        // python), so try each in order and report the first that answers.
+        for (const bin of t.binaries) {
+          if (!ALLOWED_BINARIES.has(bin)) continue;
           try {
-            const res = await this.run({ argv: candidate, timeoutMs: 10_000 });
-            if (res.code === 0) {
-              report[t.id] = {
-                available: true,
-                version: (res.stdout || res.stderr).trim().split("\n")[0],
-              };
+            const res = await this.run({ argv: [bin, ...t.command.slice(1)], timeoutMs: 10_000 });
+            const text = (res.stdout || res.stderr).trim();
+            // A missing binary is reported by run() as exit 127 with a
+            // "command not found" line, which must NOT count as available.
+            if (res.code === 127 || /command not found/i.test(text)) continue;
+            if (res.code === 0 || text.length > 0) {
+              report[t.id] = { available: true, version: text.split("\n")[0] };
               return;
             }
           } catch {
-            // fall through to the next candidate
+            // try the next candidate
           }
         }
         report[t.id] = { available: false, error: "not installed in this image" };
@@ -236,13 +341,6 @@ export class ExecService {
     );
     return report;
   }
-}
-
-/** A toolchain may be satisfied by any of several binaries (python/python3). */
-function candidateCommands(t: Toolchain): string[][] {
-  return t.binaries
-    .filter((b) => b !== "wasmchain" || true)
-    .map((bin) => [bin, ...t.command.slice(1)]);
 }
 
 /** Exported for tests and for the API's capability listing. */
