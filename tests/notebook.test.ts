@@ -44,10 +44,20 @@ describe("parseCell", () => {
     expect(parseCell("const a = 1; const b = a + 1;").references).not.toContain("a");
   });
 
-  test("ignores property accesses and object keys", () => {
-    const cell = parseCell("const x = obj.field + other['k'];");
+  test("ignores property names but keeps the object itself as a reference", () => {
+    // `obj` is genuinely read by this cell, so it must remain an edge in the
+    // graph; only the *property* names are not dependencies.
+    const cell = parseCell("const x = obj.field + other.thing;");
     expect(cell.references).not.toContain("field");
-    expect(cell.references).not.toContain("obj");
+    expect(cell.references).not.toContain("thing");
+    expect(cell.references).toContain("obj");
+    expect(cell.references).toContain("other");
+  });
+
+  test("ignores object literal keys", () => {
+    const cell = parseCell("const x = { key: 1, otherKey: 2 };");
+    expect(cell.references).not.toContain("key");
+    expect(cell.references).not.toContain("otherKey");
   });
 
   test("ignores language keywords and literals", () => {
