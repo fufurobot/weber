@@ -68,7 +68,12 @@ jobs:
             assert 'ports' not in d['services']['core'], 'core must not be published'; \
             print('compose topology OK')"
 
+      # `nginx -t` resolves upstream hostnames at config-test time, so the
+      # compose service name must exist as a host for the check to be
+      # meaningful outside the compose network.
       - name: Validate nginx config syntax
         run: |
-          docker run --rm -v "$PWD/compose/nginx.conf:/etc/nginx/conf.d/weber.conf:ro" \
+          docker run --rm \
+            --add-host core:127.0.0.1 \
+            -v "$PWD/compose/nginx.conf:/etc/nginx/conf.d/weber.conf:ro" \
             nginx:1.27-alpine nginx -t

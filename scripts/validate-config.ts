@@ -45,6 +45,28 @@ console.log("CI workflow");
   check("runs the spawn-dependent suite", /bun run test:e2e/.test(src));
   check("no stray tab indentation", !/\t/.test(src));
   check("no malformed bare 'steps' key", !/^\s*steps\s*$/.test(src));
+  // `nginx -t` resolves upstream names at config time, so the check needs the
+  // compose service name to exist as a host.
+  check(
+    "nginx syntax check maps the core hostname",
+    /--add-host\s+core:/.test(src),
+    "nginx -t fails with 'host not found in upstream' without it",
+  );
+}
+
+console.log("nginx upstream consistency");
+{
+  const conf = readFileSync("compose/nginx.conf", "utf8");
+  const compose = readFileSync("podman-compose.yml", "utf8");
+  const upstream = conf.match(/server\s+([A-Za-z0-9_.-]+):(\d+)\s*;/);
+  check("nginx declares an upstream server", upstream !== null);
+  if (upstream) {
+    const [, host, port] = upstream;
+    // The proxied host must be a real compose service, and the port must match
+    // what that service exposes, or the stack silently 502s.
+    check(`upstream host '${host}' is a compose service`, sectionKeys(compose, "services").includes(host!));
+    check(`core exposes the proxied port ${port}`, new RegExp(`expose:\\s*\\n\\s*-\\s*"${port}"`).test(compose));
+  }
 }
 
 console.log("podman-compose.yml");
