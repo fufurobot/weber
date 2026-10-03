@@ -71,22 +71,44 @@ Whether you're writing Rust for WebAssembly, prototyping in Python with Pyodide,
 
 ## Quick Start
 
+### With a container runtime (recommended)
+
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/weber.git
+git clone https://github.com/fufurobot/weber.git
 cd weber
 
-# Install dependencies
-bun install
+cp compose/.env.example compose/.env
 
-# Start the development server
-bun run dev
-
-# Build for production
-bun run build
+# nginx edge + Bun core
+podman-compose up --build
 ```
 
-Then open `http://localhost:3000` in your browser.
+Then open `http://localhost:3000`.
+
+### Directly on Bun
+
+```bash
+bun install
+
+# Terminal 1 — the core service
+CORE_PORT=8787 WORKSPACE_ROOT=./workspaces bun run dev
+
+# Terminal 2 — the frontend
+bun run build:web
+```
+
+### Tests
+
+```bash
+bun test              # hermetic: unit and policy tests
+bun run test:e2e      # tests that spawn real processes
+```
+
+> **Status:** the core services, HTTP API and frontend shell are implemented
+> and tested. Monaco, LSP integration and Pyodide are not yet built, and the
+> container images have not been built on a real runtime. See
+> [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for an honest account of
+> what works, and [docs/ISSUES.md](docs/ISSUES.md) for what is outstanding.
 
 ### Deploy Anywhere
 

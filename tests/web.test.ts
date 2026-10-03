@@ -14,6 +14,27 @@ const ROOT = join(import.meta.dir, "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 const exists = (rel: string) => existsSync(join(ROOT, rel));
 
+describe("documentation links", () => {
+  test("every markdown file a top-level doc links to exists", async () => {
+    // A README pointing at a missing CONTRIBUTING.md is a broken promise, and
+    // an easy one to make when docs are added by hand.
+    const { dirname } = await import("node:path");
+    for (const doc of ["README.md", "CONTRIBUTING.md", "docs/ARCHITECTURE.md"]) {
+      if (!exists(doc)) continue;
+      const src = read(doc);
+      for (const match of src.matchAll(/\]\(([A-Za-z0-9_./-]+\.md)\)/g)) {
+        // Links are relative to the document that contains them.
+        const target = join(dirname(doc), match[1]!);
+        expect(exists(target)).toBe(true);
+      }
+    }
+  });
+
+  test("the README no longer uses the placeholder clone URL", () => {
+    expect(read("README.md")).not.toContain("your-org/weber");
+  });
+});
+
 describe("build tooling", () => {
   test("a build:web script exists", () => {
     expect(exists("scripts/build-web.ts")).toBe(true);

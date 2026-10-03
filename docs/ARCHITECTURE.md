@@ -83,7 +83,8 @@ that makes Observable and Marimo feel different from Jupyter.
 Parsing is a scope-aware token scan rather than a full JS parse. That is a
 deliberate trade: cells are small snippets, and a full parser is a large
 dependency for a case the scan already handles for realistic cells. The limits
-of that choice are noted in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+of that choice are noted in [the open questions](OPEN-QUESTIONS.md) and
+[the implementation status](IMPLEMENTATION.md).
 
 ## Testing strategy
 
