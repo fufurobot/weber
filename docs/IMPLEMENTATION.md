@@ -20,17 +20,19 @@ Everything below has tests that run in the default `bun test` pass.
 | HTTP API | `src/server/app.ts` | 30 |
 | Terminal protocol | `src/server/terminal.ts` | 11 |
 | Core image contract | `compose/Dockerfile.core` | 11 |
-| Config validation | `scripts/validate-config.ts` | 24 checks |
+| Web build + SPA shell | `web/`, `scripts/build-web.ts` | 13 |
+| Config validation | `scripts/validate-config.ts` | 38 checks |
 
 ```
-bun test          130 pass, 7 skip, 0 fail
+bun test          143 pass, 7 skip, 0 fail
 bun run test:e2e   19 pass, 0 fail
 ```
 
 Verified against a **running server**, not only in unit tests: `/api/health`,
 file write and read, notebook reactivity (`b = a * 21` → `42`), a policy
-refusal, and a full websocket session (ready → refusal without a start frame →
-streaming → exit).
+refusal, a full websocket session (ready → refusal without a start frame →
+streaming → exit), and the built SPA served through an edge simulation that
+mirrors the nginx config (static shell, hashed assets, proxied `/api`).
 
 ## Implemented and verified, but only outside a restricted sandbox
 
@@ -57,26 +59,33 @@ real bug, so a skipped suite must never be read as a passing one.**
 
 These are named in the README and do not exist in code:
 
-- **Frontend.** No SPA, no Monaco, no Project/Script mode UI. `build:web` is
-  declared but has no implementation, so `compose/Dockerfile.web` cannot build
-  yet. The edge topology is correct and lint-validated, but the stack is not
-  runnable end to end until this exists.
-- **LSP integration** (clangd, rust-analyzer, tsserver proxying).
-- **Pyodide** Python execution in the browser.
+- **Monaco editor and LSP integration** (clangd, rust-analyzer, tsserver). The
+  editor is currently a plain textarea, and there is no language intelligence.
+- **Pyodide** Python execution in the browser. Python cells therefore run
+  against the server's CPython, not an in-browser WASM runtime.
 - **VS Code extension host.**
 - **AI completion.**
 - **Collaborative editing**, offline mode, mobile layout.
 
-## Known limitation of the terminal
+## Known limitations worth stating plainly
 
-`/ws` is a **policy-checked command channel, not a pty**. There is no
-interactive shell, no job control, and no TTY-style echo. It runs allow-listed,
-argv-shaped commands and streams their output.
-
-This is deliberate. A real pty needs a shell, and a shell would bypass both the
-binary allow-list and the argv-as-data guarantee that the rest of the system
-depends on. A true interactive terminal is a separate design problem (it needs
-its own isolation story) and is not attempted here.
+- **The terminal is not a pty.** `/ws` is a policy-checked command channel: no
+  interactive shell, no job control, no TTY echoing. A real pty needs a shell,
+  and a shell would bypass both the binary allow-list and the argv-as-data
+  guarantee the rest of the system depends on. That is a separate design
+  problem, not an oversight.
+- **`compose/Dockerfile.web` and `compose/Dockerfile.core` have never been
+  built.** No container runtime was available in the environment where this was
+  written (the Podman VM is not running), so the images are validated by
+  inspection and config checks only. The build inputs, stages, healthchecks and
+  the `build:web` contract are all pinned by tests, but "tests pass" is not the
+  same claim as "the image builds".
+- **The SPA has not been opened in a real browser.** Its output was served and
+  fetched through a simulation of the edge, which proves the routes, asset
+  naming and MIME types resolve — not that the UI renders correctly.
+- **The frontend is dependency-free by design.** Monaco and a real component
+  library are deferred rather than abandoned; the constraint was building
+  inside a Bun-only image.
 
 ## Deliberate design decisions worth review
 
@@ -111,7 +120,9 @@ In dependency order:
 1. ~~`compose/Dockerfile.core` + `/api/health`~~ — **done**.
 2. ~~HTTP file/tool routes~~ — **done**.
 3. ~~WebSocket terminal~~ — **done** (as a policy-checked command channel).
-4. Minimal SPA + `scripts/build-web.ts`, so `Dockerfile.web` builds and the
-   stack becomes runnable end to end.
-5. Script Mode UI on top of the existing notebook engine.
-6. LSP proxy and Pyodide.
+4. ~~Minimal SPA + `scripts/build-web.ts`~~ — **done**.
+5. **Build the images for real** on a machine with a container runtime, and run
+   `podman-compose up` end to end. This is the highest-value next step because
+   it is the one claim still resting on inspection rather than execution.
+6. Monaco + LSP proxy, replacing the textarea editor.
+7. Pyodide for in-browser Python.
