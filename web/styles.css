@@ -1,0 +1,375 @@
+/* Weber — application shell.
+   A small, dependency-free stylesheet: the SPA must build inside a Bun-only
+   image, so there is no preprocessor or CSS framework in the pipeline. */
+
+:root {
+  --bg: #0f1116;
+  --panel: #161a22;
+  --panel-2: #1c212b;
+  --border: #2a3140;
+  --fg: #e6e9ef;
+  --muted: #8b95a7;
+  --accent: #4f8cff;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --err: #f85149;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+button {
+  font: inherit;
+  color: var(--fg);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.busy {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ header */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.meta {
+  margin-left: auto;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  max-width: 45ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ layout */
+
+.app-main {
+  height: calc(100% - 45px);
+  display: flex;
+  min-height: 0;
+}
+
+.sidebar {
+  width: 320px;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.crumbs,
+.editor-head {
+  padding: 7px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search {
+  margin: 8px;
+  padding: 6px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+}
+
+.tree {
+  overflow: auto;
+  flex: 1;
+  padding: 4px 6px 12px;
+}
+
+.tree-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-family: var(--mono);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-row:hover {
+  background: var(--panel-2);
+}
+
+.tree-row.directory {
+  color: #9ecbff;
+}
+
+.empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 10px;
+}
+
+/* ------------------------------------------------------------------ editor */
+
+.editor-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.editor {
+  flex: 1;
+  width: 100%;
+  resize: none;
+  border: 0;
+  outline: none;
+  padding: 14px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.editor-bar {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.tools-title {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.chip.on {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, var(--border));
+}
+
+.chip.off {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+/* ---------------------------------------------------------------- notebook */
+
+.notebook {
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+  min-width: 0;
+}
+
+.nb-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.nb-status {
+  font-family: var(--mono);
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.nb-status.ok {
+  color: var(--ok);
+}
+
+.nb-status.error {
+  color: var(--err);
+}
+
+.nb-cell {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.nb-cell.markdown {
+  border-left: 3px solid var(--warn);
+}
+
+.nb-cell-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.nb-cell-id {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.tag.ran {
+  color: var(--ok);
+}
+.tag.skip {
+  color: var(--warn);
+}
+.tag.err {
+  color: var(--err);
+}
+
+button.icon {
+  margin-left: auto;
+  padding: 2px 7px;
+  font-size: 11px;
+}
+
+.nb-input {
+  display: block;
+  width: 100%;
+  border: 0;
+  outline: none;
+  resize: vertical;
+  padding: 10px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.nb-error {
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--err) 14%, transparent);
+  color: #ffb4ae;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.nb-values {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.nb-values h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+
+.nb-values pre {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: #9ecbff;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

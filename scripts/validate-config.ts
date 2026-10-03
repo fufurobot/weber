@@ -104,6 +104,34 @@ console.log("Dockerfile references");
   }
 }
 
+console.log("Dockerfile build inputs");
+{
+  // A Dockerfile that runs a project script must COPY the directories that
+  // script reads, or the build fails only inside the container.
+  const web = readFileSync("compose/Dockerfile.web", "utf8");
+  const core = readFileSync("compose/Dockerfile.core", "utf8");
+
+  check("Dockerfile.web copies web/", /COPY\s+web\s/.test(web));
+  check("Dockerfile.web copies scripts/ (runs build:web from it)", /COPY\s+scripts\s/.test(web));
+  check("Dockerfile.core copies src/", /COPY[^\n]*src\s/.test(core));
+  check(
+    "Dockerfile.core copies bunfig.toml (bun test config)",
+    /bunfig\.toml/.test(core),
+  );
+
+  // Every path a Dockerfile COPYs must exist in the repository.
+  for (const [name, src] of [
+    ["Dockerfile.web", web],
+    ["Dockerfile.core", core],
+  ] as const) {
+    const copies = [...src.matchAll(/^COPY\s+(?!--from)([^\s]+)/gm)].map((m) => m[1]!);
+    for (const target of copies) {
+      if (target.includes("*")) continue; // optional lockfiles
+      check(`${name} copies existing path '${target}'`, existsSync(target), target);
+    }
+  }
+}
+
 console.log("package.json");
 {
   const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {

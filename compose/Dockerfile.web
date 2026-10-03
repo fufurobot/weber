@@ -8,6 +8,8 @@ RUN bun install --frozen-lockfile || bun install
 COPY tsconfig.json ./
 COPY src ./src
 COPY web ./web
+# The build script itself lives here, so it must be in the context.
+COPY scripts ./scripts
 
 RUN bun run build:web
 
