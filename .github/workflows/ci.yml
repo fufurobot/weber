@@ -35,6 +35,20 @@ jobs:
       - name: Validate CI and compose configuration
         run: bun run validate:config
 
+      # The frontend must actually bundle, and the shell must reference the
+      # hashed assets the bundler emits.
+      - name: Build the frontend
+        run: bun run build:web
+
+      - name: Assert the build output is complete
+        run: |
+          test -f dist/web/index.html || { echo "missing index.html"; exit 1; }
+          ls dist/web/assets/*.js >/dev/null || { echo "missing js asset"; exit 1; }
+          ls dist/web/assets/*.css >/dev/null || { echo "missing css asset"; exit 1; }
+          grep -q 'assets/.*\.js' dist/web/index.html || { echo "shell not rewritten"; exit 1; }
+          grep -q 'assets/.*\.css' dist/web/index.html || { echo "css not rewritten"; exit 1; }
+          echo "frontend build output OK"
+
   e2e:
     name: Spawn-dependent tests
     runs-on: ubuntu-latest
