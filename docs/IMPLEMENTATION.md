@@ -17,12 +17,20 @@ Everything below has tests that run in the default `bun test` pass.
 | File service | `src/core/files.ts` | 20 |
 | Reactive notebook engine | `src/core/notebook/` | 21 |
 | Exec policy (allow-list, cwd, argv) | `src/core/exec.ts` | 12 |
-| Config validation | `scripts/validate-config.ts` | 15 checks |
+| HTTP API | `src/server/app.ts` | 30 |
+| Terminal protocol | `src/server/terminal.ts` | 11 |
+| Core image contract | `compose/Dockerfile.core` | 11 |
+| Config validation | `scripts/validate-config.ts` | 24 checks |
 
 ```
-bun test          78 pass, 7 skip, 0 fail
-bun run test:e2e  19 pass, 0 fail
+bun test          130 pass, 7 skip, 0 fail
+bun run test:e2e   19 pass, 0 fail
 ```
+
+Verified against a **running server**, not only in unit tests: `/api/health`,
+file write and read, notebook reactivity (`b = a * 21` → `42`), a policy
+refusal, and a full websocket session (ready → refusal without a start frame →
+streaming → exit).
 
 ## Implemented and verified, but only outside a restricted sandbox
 
@@ -49,20 +57,26 @@ real bug, so a skipped suite must never be read as a passing one.**
 
 These are named in the README and do not exist in code:
 
-- **HTTP API surface** (`/api/fs/*`, `/api/tools/*`, `/api/notebook/*`) and the
-  WebSocket terminal. The services they would call are complete and tested;
-  the transport layer is not written.
-- **`compose/Dockerfile.core`** and the `core` image. The compose file
-  references it; the file does not exist yet.
-- **Frontend.** No SPA, no Monaco, no Project/Script mode UI. `build:web`
-  is declared but has no implementation, so `Dockerfile.web` cannot build yet.
-  The compose topology is correct and lint-validated; it is not yet runnable
-  end to end.
+- **Frontend.** No SPA, no Monaco, no Project/Script mode UI. `build:web` is
+  declared but has no implementation, so `compose/Dockerfile.web` cannot build
+  yet. The edge topology is correct and lint-validated, but the stack is not
+  runnable end to end until this exists.
 - **LSP integration** (clangd, rust-analyzer, tsserver proxying).
 - **Pyodide** Python execution in the browser.
 - **VS Code extension host.**
 - **AI completion.**
 - **Collaborative editing**, offline mode, mobile layout.
+
+## Known limitation of the terminal
+
+`/ws` is a **policy-checked command channel, not a pty**. There is no
+interactive shell, no job control, and no TTY-style echo. It runs allow-listed,
+argv-shaped commands and streams their output.
+
+This is deliberate. A real pty needs a shell, and a shell would bypass both the
+binary allow-list and the argv-as-data guarantee that the rest of the system
+depends on. A true interactive terminal is a separate design problem (it needs
+its own isolation story) and is not attempted here.
 
 ## Deliberate design decisions worth review
 
@@ -94,8 +108,10 @@ These are named in the README and do not exist in code:
 
 In dependency order:
 
-1. `compose/Dockerfile.core` + `/api/health`, so the stack boots.
-2. HTTP file/tool routes, so Project Mode has a backend.
-3. Minimal SPA + `scripts/build-web.ts`, so `Dockerfile.web` builds.
-4. WebSocket terminal on top of the existing `ExecService`.
-5. Notebook routes + Script Mode UI on top of the existing engine.
+1. ~~`compose/Dockerfile.core` + `/api/health`~~ — **done**.
+2. ~~HTTP file/tool routes~~ — **done**.
+3. ~~WebSocket terminal~~ — **done** (as a policy-checked command channel).
+4. Minimal SPA + `scripts/build-web.ts`, so `Dockerfile.web` builds and the
+   stack becomes runnable end to end.
+5. Script Mode UI on top of the existing notebook engine.
+6. LSP proxy and Pyodide.
