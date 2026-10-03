@@ -1,0 +1,5 @@
+# Bun configuration.
+# Scope test discovery to this repository so the runner never walks parent
+# directories (which may be unreadable or unrelated).
+[test]
+root = "."

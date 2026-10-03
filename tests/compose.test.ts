@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-const ROOT = join(import.meta.dir, "..", "..");
+const ROOT = join(import.meta.dir, "..");
 
 function read(rel: string): string {
   return readFileSync(join(ROOT, rel), "utf8");
@@ -20,6 +20,7 @@ function parseCompose(src: string) {
   const services = new Map<string, Record<string, string>>();
   let inServices = false;
   let current: string | null = null;
+  let pendingKey: string | null = null;
 
   for (const rawLine of src.split(/\r?\n/)) {
     if (/^\s*#/.test(rawLine) || rawLine.trim() === "") continue;
@@ -38,9 +39,27 @@ function parseCompose(src: string) {
       services.set(current, {});
       continue;
     }
-    if (current && indent >= 4 && line.includes(":")) {
+    if (!current) continue;
+
+    const svc = services.get(current)!;
+
+    // Block-sequence item belonging to the previous key (e.g. "- 3000:8080").
+    if (line.startsWith("- ")) {
+      if (pendingKey) svc[pendingKey] = `${svc[pendingKey] ?? ""}${line.slice(2).trim()}\n`;
+      continue;
+    }
+    if (indent >= 4 && line.includes(":")) {
       const idx = line.indexOf(":");
-      services.get(current)![line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+      const key = line.slice(0, idx).trim();
+      const value = line.slice(idx + 1).trim();
+      // A bare "key:" means the value is a block sequence that follows.
+      if (value === "") {
+        pendingKey = key;
+        svc[key] = "";
+      } else {
+        pendingKey = null;
+        svc[key] = value;
+      }
     }
   }
   return services;
