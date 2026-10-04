@@ -108,11 +108,12 @@ describe("seedStarterWorkspace", () => {
   });
 
   test("ships at least one file per advertised language", () => {
-    const names = Object.keys(STARTER_FILES).join(" ");
-    expect(names).toMatch(/\.ts$/m);
-    expect(names).toMatch(/\.rs$/m);
-    expect(names).toMatch(/\.c(pp)?$/m);
-    expect(names).toMatch(/\.py$/m);
+    const names = Object.keys(STARTER_FILES);
+    const has = (ext: string) => names.some((n) => n.endsWith(ext));
+    expect(has(".ts")).toBe(true);
+    expect(has(".rs")).toBe(true);
+    expect(has(".c") || has(".cpp")).toBe(true);
+    expect(has(".py")).toBe(true);
   });
 
   test("seeded content contains no secrets or absolute paths", () => {
