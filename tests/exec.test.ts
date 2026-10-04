@@ -150,13 +150,19 @@ describe("ExecService.run — spawns a real process", () => {
     expect(res.stdout).toContain("a;b");
   });
 
-  e2e("probe reports availability for every advertised toolchain", async () => {
-    const report = await svc.probe();
-    for (const t of svc.toolchains()) {
-      expect(report[t.id]).toBeDefined();
-      expect(typeof report[t.id]!.available).toBe("boolean");
-    }
-    // Bun is the runtime we are already inside, so it must be present.
-    expect(report["bun"]!.available).toBe(true);
-  });
+  e2e(
+    "probe reports availability for every advertised toolchain",
+    async () => {
+      const report = await svc.probe();
+      for (const t of svc.toolchains()) {
+        expect(report[t.id]).toBeDefined();
+        expect(typeof report[t.id]!.available).toBe("boolean");
+      }
+      // Bun is the runtime we are already inside, so it must be present.
+      expect(report["bun"]!.available).toBe(true);
+    },
+    // probing spawns one process per toolchain; on a busy CI runner the
+    // default 5s is not enough for eight of them.
+    30_000,
+  );
 });

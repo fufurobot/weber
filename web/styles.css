@@ -33,6 +33,17 @@ body {
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
+/* Shown only in the static GitHub Pages demo, where no backend exists.
+   A reviewer must never mistake fixtures for a working IDE. */
+#demo-banner {
+  background: color-mix(in srgb, var(--warn) 18%, var(--panel));
+  border-bottom: 1px solid var(--warn);
+  color: #f0d08a;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  text-align: center;
+}
+
 button {
   font: inherit;
   color: var(--fg);

@@ -1,0 +1,70 @@
+name: Deploy to GitHub Pages
+
+# Publishes the built SPA as a static demo of the Weber UI.
+#
+# The full product needs its backend (file operations, the toolchain runner and
+# the notebook engine all live in the core service). GitHub Pages can only serve
+# static files, so this deploys the interface with a clearly-labelled mock
+# backend — a way to see and review the UI, not a working IDE.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "scripts/build-web.ts"
+      - "scripts/build-pages.ts"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the static demo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Build for Pages
+        run: bun run build:pages
+
+      - name: Assert the artifact is complete
+        run: |
+          test -f dist/pages/index.html || { echo "missing index.html"; exit 1; }
+          test -f dist/pages/.nojekyll || { echo "missing .nojekyll"; exit 1; }
+          ls dist/pages/assets/*.js >/dev/null || { echo "missing js"; exit 1; }
+          ls dist/pages/assets/*.css >/dev/null || { echo "missing css"; exit 1; }
+          grep -q 'assets/.*\.js' dist/pages/index.html || { echo "shell not rewritten"; exit 1; }
+          echo "pages artifact OK"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/pages
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

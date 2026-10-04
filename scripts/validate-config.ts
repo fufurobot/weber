@@ -132,6 +132,20 @@ console.log("Dockerfile build inputs");
   }
 }
 
+console.log("GitHub Pages workflow");
+{
+  const pages = readFileSync(".github/workflows/pages.yml", "utf8");
+  check(
+    "has the permissions Pages deployment requires",
+    /pages:\s*write/.test(pages) && /id-token:\s*write/.test(pages),
+  );
+  check("runs the build:pages script", /bun run build:pages/.test(pages));
+  check("uploads the dist/pages artifact", /path:\s*dist\/pages/.test(pages));
+  check("declares a github-pages environment", /name:\s*github-pages/.test(pages));
+  check("the pages build script exists", existsSync("scripts/build-pages.ts"));
+  check("a mock backend exists for the static demo", existsSync("web/mock-api.ts"));
+}
+
 console.log("package.json");
 {
   const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {

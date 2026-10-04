@@ -9,6 +9,7 @@
     "dev": "bun run --hot src/server/main.ts",
     "start": "bun run src/server/main.ts",
     "build:web": "bun run scripts/build-web.ts",
+    "build:pages": "bun run scripts/build-pages.ts",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:e2e": "bun run scripts/test-e2e.ts tests/exec.test.ts",

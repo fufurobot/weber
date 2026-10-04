@@ -22,11 +22,17 @@ export const e2eMode: boolean = process.env.WEBER_E2E_MODE === "1";
  * Declare a test that requires spawning a real process.
  *
  * Skipped in the default suite, executed under `bun run test:e2e`.
+ *
+ * `timeoutMs` matters here: spawning is far slower than an in-process
+ * assertion, and a test that does several spawns can exceed Bun's 5s default
+ * on a loaded CI runner. That failure looks like a product bug but is a
+ * mis-sized timeout, so set it deliberately.
  */
-export function e2e(name: string, fn: () => void | Promise<void>): void {
+export function e2e(name: string, fn: () => void | Promise<void>, timeoutMs?: number): void {
+  const options = timeoutMs === undefined ? undefined : { timeout: timeoutMs };
   if (e2eMode) {
-    bunTest(name, fn);
+    bunTest(name, fn, options);
     return;
   }
-  bunTest.skip(`${name} [needs process spawn — run: bun run test:e2e]`, fn);
+  bunTest.skip(`${name} [needs process spawn — run: bun run test:e2e]`, fn, options);
 }
