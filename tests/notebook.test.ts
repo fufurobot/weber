@@ -40,6 +40,28 @@ describe("parseCell", () => {
     expect(cell.references).toContain("b");
   });
 
+  test("sees identifiers inside template literal interpolations", () => {
+    // `${...}` is real code, not string data. Missing it means a cell that
+    // interpolates another cell's binding never becomes a dependency edge, so
+    // the cell runs without its input and fails with "not defined".
+    const cell = parseCell("const label = `value is ${answer}`;");
+    expect(cell.references).toContain("answer");
+  });
+
+  test("sees identifiers inside nested template interpolations", () => {
+    const cell = parseCell("const s = `a${b + `${c}`}d`;");
+    expect(cell.references).toContain("b");
+    expect(cell.references).toContain("c");
+  });
+
+  test("still ignores literal text inside a template", () => {
+    expect(parseCell("const s = `notAReference`;").references).not.toContain("notAReference");
+  });
+
+  test("ignores an escaped interpolation marker", () => {
+    expect(parseCell("const s = `\\${notCode}`;").references).not.toContain("notCode");
+  });
+
   test("does not report a cell's own bindings as references", () => {
     expect(parseCell("const a = 1; const b = a + 1;").references).not.toContain("a");
   });
@@ -95,6 +117,19 @@ describe("NotebookEngine.run", () => {
     ]);
     await nb.run();
     expect(nb.values.get("c")).toBe(7);
+  });
+
+  test("propagates through a template literal interpolation", async () => {
+    // The user-visible symptom: a cell that interpolates a binding from
+    // another cell must receive it, exactly as `b + 1` would.
+    const nb = new NotebookEngine();
+    nb.setCells([
+      { id: "a", code: "const answer = 42;" },
+      { id: "b", code: "const label = `answer is ${answer}`;" },
+    ]);
+    const r = await nb.run();
+    expect(r.status).toBe("ok");
+    expect(nb.values.get("label")).toBe("answer is 42");
   });
 
   test("orders execution topologically regardless of cell order", async () => {
