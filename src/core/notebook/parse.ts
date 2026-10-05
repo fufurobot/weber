@@ -81,8 +81,52 @@ function stripCommentsAndStrings(src: string): string {
       out += " ";
       continue;
     }
-    // string / template literal
-    if (c === '"' || c === "'" || c === "`") {
+    // Template literal: its *text* is data, but `${...}` is code and must be
+    // preserved so identifiers inside it still become dependency edges.
+    if (c === "`") {
+      i++;
+      out += "("; // keep the emitted expression syntactically separated
+      while (i < n) {
+        const tc = src[i]!;
+        if (tc === "\\") {
+          i += 2;
+          continue;
+        }
+        if (tc === "`") {
+          i++;
+          break;
+        }
+        if (tc === "$" && src[i + 1] === "{") {
+          // Emit the interpolation's contents verbatim, minus the braces, so
+          // the caller's tokenizer sees the inner expression as real code.
+          i += 2;
+          let depth = 1;
+          const start = i;
+          while (i < n && depth > 0) {
+            const ic = src[i]!;
+            if (ic === "\\") {
+              i += 2;
+              continue;
+            }
+            if (ic === "{") depth++;
+            else if (ic === "}") {
+              depth--;
+              if (depth === 0) break;
+            }
+            i++;
+          }
+          out += ` ${src.slice(start, i)} `;
+          i++; // consume the closing brace
+          continue;
+        }
+        i++;
+      }
+      out += ")";
+      continue;
+    }
+
+    // string literal
+    if (c === '"' || c === "'") {
       const quote = c;
       i++;
       while (i < n) {
