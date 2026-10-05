@@ -20,19 +20,24 @@ Everything below has tests that run in the default `bun test` pass.
 | HTTP API | `src/server/app.ts` | 30 |
 | Terminal protocol | `src/server/terminal.ts` | 11 |
 | Core image contract | `compose/Dockerfile.core` | 11 |
-| Web build + SPA shell | `web/`, `scripts/build-web.ts` | 13 |
-| Config validation | `scripts/validate-config.ts` | 38 checks |
+| Web build + SPA shell | `web/`, `scripts/build-web.ts` | 15 |
+| Starter workspace seeding | `src/core/seed.ts` | 12 |
+| Issue filing tooling | `scripts/file-issues.ts` | 7 |
+| Config validation | `scripts/validate-config.ts` | 49 checks |
 
 ```
-bun test          143 pass, 7 skip, 0 fail
+bun test          164 pass, 7 skip, 0 fail
 bun run test:e2e   19 pass, 0 fail
 ```
 
 Verified against a **running server**, not only in unit tests: `/api/health`,
 file write and read, notebook reactivity (`b = a * 21` → `42`), a policy
 refusal, a full websocket session (ready → refusal without a start frame →
-streaming → exit), and the built SPA served through an edge simulation that
-mirrors the nginx config (static shell, hashed assets, proxied `/api`).
+streaming → exit), the built SPA served through an edge simulation that
+mirrors the nginx config (static shell, hashed assets, proxied `/api`), and
+first-boot seeding including the no-clobber path on restart.
+
+## Known limitations worth stating plainly
 
 ## Implemented and verified, but only outside a restricted sandbox
 
@@ -67,7 +72,31 @@ These are named in the README and do not exist in code:
 - **AI completion.**
 - **Collaborative editing**, offline mode, mobile layout.
 
-## Known limitations worth stating plainly
+## Deployment
+
+Two targets, with different capabilities — worth keeping distinct:
+
+| Target | What runs | Limitation |
+|---|---|---|
+| `podman-compose up` | the real product | needs a container runtime |
+| GitHub Pages | the interface only | no backend; fixtures |
+
+**GitHub Pages is a demo, not a deployment of the product.** File operations,
+the toolchain runner and the notebook engine all live in the core service, and
+Pages serves static files. So `scripts/build-pages.ts` aliases the API client
+to `web/mock-api.ts` at bundle time and the shell shows a banner saying so. The
+alias is done in the bundler rather than by forking the app, so the demo
+exercises the same components the real build does.
+
+**One manual step is required.** The workflow cannot enable Pages for itself —
+its token returns `Resource not accessible by integration` when it tries. A
+repository owner must set **Settings → Pages → Build and deployment → Source:
+GitHub Actions** once. After that, `.github/workflows/pages.yml` deploys on
+every push that touches the frontend.
+
+The build step itself is verified: CI reports `pages artifact OK`, and the
+artifact assertions check that `index.html`, `.nojekyll`, and hashed JS and CSS
+assets all exist and that the shell references them.
 
 - **The terminal is not a pty.** `/ws` is a policy-checked command channel: no
   interactive shell, no job control, no TTY echoing. A real pty needs a shell,
