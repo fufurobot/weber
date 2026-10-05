@@ -25,9 +25,16 @@ interface Issue {
   body: string;
 }
 
-/** Parse `## <title>` sections from the issues document. */
+/**
+ * Parse issue sections from the issues document.
+ *
+ * A section only counts as an issue if it carries a `**Labels:**` line. That is
+ * the marker that distinguishes a fillable issue from a prose section such as
+ * "## Open" or "## Fixed — ...", which would otherwise be filed as an issue
+ * titled after the heading.
+ */
 export function parseIssues(markdown: string): Issue[] {
-  const issues: Issue[] = [];
+  const candidates: { title: string; labels: string[]; body: string[] }[] = [];
   const lines = markdown.split(/\r?\n/);
 
   let current: { title: string; labels: string[]; body: string[] } | null = null;
@@ -35,7 +42,7 @@ export function parseIssues(markdown: string): Issue[] {
   for (const line of lines) {
     const heading = line.match(/^##\s+(?:P\d+\s+—\s+)?(.+)$/);
     if (heading) {
-      if (current) issues.push(finish(current));
+      if (current) candidates.push(current);
       current = { title: heading[1]!.trim(), labels: [], body: [] };
       continue;
     }
@@ -51,8 +58,10 @@ export function parseIssues(markdown: string): Issue[] {
     }
     current.body.push(line);
   }
-  if (current) issues.push(finish(current));
-  return issues;
+  if (current) candidates.push(current);
+
+  // Only sections with labels are issues.
+  return candidates.filter((c) => c.labels.length > 0).map(finish);
 }
 
 function finish(c: { title: string; labels: string[]; body: string[] }): Issue {

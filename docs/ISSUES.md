@@ -1,21 +1,38 @@
 # Issues and follow-ups
 
-GitHub issues could not be filed programmatically: the API token available in
-`.env` is read-only. Creating an issue and creating a pull request both return:
-
-```
-403 Resource not accessible by personal access token
-```
-
-Git push works (over SSH), so the code and this record are public — but the
-triage surface is not. These are the items that would have been filed, written
-so they can be copied into GitHub verbatim, or resolved directly.
-
-To file them for real, create a token with **Issues: write** and
-**Pull requests: write** on this repository, then run `scripts/file-issues.ts`
-(not yet written) or paste them by hand.
+These items were filed as GitHub issues **#2–#10** once a token with write
+access was provided. This document remains the source of truth for what is
+outstanding, and `scripts/file-issues.ts` can re-file any of them from here.
 
 ---
+
+## Fixed — recorded for the lesson, not the fix
+
+**Template literal interpolations were not dependencies.** `parseCell` stripped
+template literals whole, discarding `${...}` along with the literal text. But
+an interpolation is *code*: it reads a binding, so it must become a dependency
+edge. A cell like
+
+```ts
+const label = `answer is ${answer}`;
+```
+
+never depended on the cell defining `answer`, ran without it, and failed with
+`answer is not defined` while `answer` sat in `values`.
+
+**Why this is recorded rather than merely fixed:** the entire test suite was
+green while this was broken. It was found by exercising the running product —
+booting the server and posting a three-cell notebook — not by any test. That is
+the strongest available argument for the "verify against the running system"
+habit, and for treating a green suite as evidence rather than proof.
+
+Fixed in `fix(notebook): treat template interpolations as dependencies`, with
+the reproducer added at both the parser and the engine level.
+
+---
+
+## Open
+
 
 ## P1 — `WEBER_SANDBOX` is declared but enforces nothing
 

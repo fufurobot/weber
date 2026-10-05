@@ -62,8 +62,17 @@ describe("parseIssues", () => {
   });
 
   test("ignores headings that are not issues", () => {
-    const issues = parseIssues("# Title\n\nIntro text.\n\n## Real issue\nBody.\n");
+    // A prose section has a heading but no labels, and must not be filed as an
+    // issue titled after the heading.
+    const issues = parseIssues(
+      "# Title\n\nIntro text.\n\n## Open\nProse.\n\n## Real issue\n**Labels:** bug\n\nBody.\n",
+    );
     expect(issues.map((i) => i.title)).toEqual(["Real issue"]);
+  });
+
+  test("a section without labels is not an issue", () => {
+    const issues = parseIssues("## Fixed — some note\n\nText.\n\n## Open\n\nMore text.\n");
+    expect(issues).toEqual([]);
   });
 
   test("every issue names a verification step or an acceptance criterion", () => {
