@@ -79,6 +79,42 @@ if (seedEnabled) {
 // Bound before the server so the handlers exist when the first client connects.
 const terminalHandlers = attachTerminal(app.exec, workspaceRoot);
 
+/**
+ * Serve the built SPA when it is present.
+ *
+ * Under compose, nginx does this. A standalone deployment has no edge, so the
+ * core serves the same files — otherwise `GET /` 404s and the only way to use
+ * the product is to know the API paths by hand.
+ */
+const WEB_ROOT = process.env.WEBER_WEB_ROOT ?? `${import.meta.dir}/../../dist/web`;
+
+async function serveStatic(pathname: string): Promise<Response | null> {
+  if (!(await Bun.file(WEB_ROOT).exists())) return null;
+
+  const rel = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+  // Refuse anything that walks out of the build directory.
+  if (rel.includes("..")) return null;
+
+  const file = Bun.file(`${WEB_ROOT}/${rel}`);
+  if (await file.exists()) {
+    return new Response(file, {
+      headers: {
+        // Hashed assets are immutable; the shell must never be cached.
+        "cache-control": rel.startsWith("assets/")
+          ? "public, max-age=31536000, immutable"
+          : "no-store, must-revalidate",
+      },
+    });
+  }
+
+  // SPA history fallback for client-side routes.
+  if (!rel.includes(".")) {
+    const index = Bun.file(`${WEB_ROOT}/index.html`);
+    if (await index.exists()) return new Response(index, { headers: { "cache-control": "no-store" } });
+  }
+  return null;
+}
+
 const server = Bun.serve({
   hostname: host,
   port,
@@ -108,6 +144,14 @@ const server = Bun.serve({
       if (ok) return undefined;
       return new Response("websocket upgrade failed", { status: 400 });
     }
+
+    // API first, then the SPA, so an API path never falls through to index.html.
+    if (url.pathname.startsWith("/api/")) {
+      return app.fetch(request);
+    }
+
+    const asset = await serveStatic(url.pathname);
+    if (asset) return asset;
 
     return app.fetch(request);
   },

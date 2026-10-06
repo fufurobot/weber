@@ -55,6 +55,69 @@ describe("compose/Dockerfile.core", () => {
   });
 });
 
+describe("standalone deployment", () => {
+  test("the server can serve the built SPA when no edge is present", () => {
+    // Under compose nginx serves the SPA; a standalone deploy has no edge, so
+    // the core must serve the same files or `GET /` 404s.
+    const src = read("src/server/main.ts");
+    expect(src).toMatch(/serveStatic/);
+    expect(src).toMatch(/index\.html/);
+  });
+
+  test("static serving refuses to escape the build directory", () => {
+    expect(read("src/server/main.ts")).toMatch(/rel\.includes\("\.\."\)/);
+  });
+
+  test("API paths are matched before the SPA fallback", () => {
+    // Otherwise an unknown /api route returns index.html with a 200, which is
+    // far harder to debug than a 404.
+    const src = read("src/server/main.ts");
+    const apiIdx = src.indexOf('startsWith("/api/")');
+    const staticIdx = src.indexOf("await serveStatic");
+    expect(apiIdx).toBeGreaterThan(-1);
+    expect(staticIdx).toBeGreaterThan(-1);
+    expect(apiIdx).toBeLessThan(staticIdx);
+  });
+
+  test("the web root is overridable by environment", () => {
+    expect(read("src/server/main.ts")).toMatch(/WEBER_WEB_ROOT/);
+  });
+});
+
+describe("deployment scripts", () => {
+  test("the host installer sets a PATH for toolchain probing", () => {
+    // systemd's default PATH is minimal, which makes every toolchain probe
+    // report "not installed" even when the binary exists.
+    const src = read("deploy/install-service.sh");
+    expect(src).toMatch(/Environment=PATH=/);
+    expect(src).toMatch(/\.bun\/bin/);
+  });
+
+  test("the installer restricts the environment file permissions", () => {
+    expect(read("deploy/install-service.sh")).toMatch(/chmod 600/);
+  });
+
+  test("the installer generates a session secret rather than hardcoding one", () => {
+    const src = read("deploy/install-service.sh");
+    expect(src).toMatch(/dev\/urandom/);
+    expect(src).not.toMatch(/WEBER_SESSION_SECRET=[A-Za-z0-9]{20,}/);
+  });
+
+  test("the installer binds to loopback by default", () => {
+    expect(read("deploy/install-service.sh")).toMatch(/CORE_HOST=127\.0\.0\.1/);
+  });
+
+  test("no deploy script contains a real credential", () => {
+    for (const script of [
+      "deploy/install-service.sh",
+      "deploy/build-on-host.sh",
+      "deploy/setup-podman.sh",
+    ]) {
+      expect(read(script)).not.toMatch(/github_pat_[A-Za-z0-9_]{20,}/);
+    }
+  });
+});
+
 describe("server entrypoint contract", () => {
   test("the entrypoint file exists", () => {
     expect(existsSync(join(ROOT, "src/server/main.ts"))).toBe(true);
