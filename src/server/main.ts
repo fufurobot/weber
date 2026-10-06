@@ -8,6 +8,7 @@ import { createApp } from "./app";
 import { attachTerminal } from "./terminal";
 import { seedStarterWorkspace } from "../core/seed";
 import { parseAllowedLogins } from "./auth";
+import { createStaticHandler } from "./static";
 
 const host = process.env.CORE_HOST ?? "0.0.0.0";
 const port = Number(process.env.CORE_PORT ?? 8787);
@@ -87,33 +88,7 @@ const terminalHandlers = attachTerminal(app.exec, workspaceRoot);
  * the product is to know the API paths by hand.
  */
 const WEB_ROOT = process.env.WEBER_WEB_ROOT ?? `${import.meta.dir}/../../dist/web`;
-
-async function serveStatic(pathname: string): Promise<Response | null> {
-  if (!(await Bun.file(WEB_ROOT).exists())) return null;
-
-  const rel = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
-  // Refuse anything that walks out of the build directory.
-  if (rel.includes("..")) return null;
-
-  const file = Bun.file(`${WEB_ROOT}/${rel}`);
-  if (await file.exists()) {
-    return new Response(file, {
-      headers: {
-        // Hashed assets are immutable; the shell must never be cached.
-        "cache-control": rel.startsWith("assets/")
-          ? "public, max-age=31536000, immutable"
-          : "no-store, must-revalidate",
-      },
-    });
-  }
-
-  // SPA history fallback for client-side routes.
-  if (!rel.includes(".")) {
-    const index = Bun.file(`${WEB_ROOT}/index.html`);
-    if (await index.exists()) return new Response(index, { headers: { "cache-control": "no-store" } });
-  }
-  return null;
-}
+const serveStatic = createStaticHandler(WEB_ROOT);
 
 const server = Bun.serve({
   hostname: host,

@@ -39,6 +39,8 @@ fi
 
 echo
 echo "=== 2. systemd user unit ==="
+# Always rewritten: the unit is deployment configuration that we own, and
+# guarding it on "already exists" silently keeps a stale PATH across upgrades.
 mkdir -p "$UNIT_DIR"
 cat > "$UNIT_DIR/weber.service" <<EOF
 [Unit]

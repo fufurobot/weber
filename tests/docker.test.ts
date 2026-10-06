@@ -60,12 +60,13 @@ describe("standalone deployment", () => {
     // Under compose nginx serves the SPA; a standalone deploy has no edge, so
     // the core must serve the same files or `GET /` 404s.
     const src = read("src/server/main.ts");
-    expect(src).toMatch(/serveStatic/);
-    expect(src).toMatch(/index\.html/);
+    expect(src).toMatch(/createStaticHandler/);
+    // The actual behaviour is covered by tests/static.test.ts.
+    expect(read("src/server/static.ts")).toMatch(/index\.html/);
   });
 
   test("static serving refuses to escape the build directory", () => {
-    expect(read("src/server/main.ts")).toMatch(/rel\.includes\("\.\."\)/);
+    expect(read("src/server/static.ts")).toMatch(/rel\.includes\("\.\."\)/);
   });
 
   test("API paths are matched before the SPA fallback", () => {
