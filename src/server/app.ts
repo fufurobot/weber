@@ -12,12 +12,18 @@ import { FileService } from "../core/files";
 import { ExecService } from "../core/exec";
 import { NotebookEngine, type Cell } from "../core/notebook/engine";
 import { SafePathError } from "../core/paths";
+import { AuthService, AuthError, type AuthConfig } from "./auth";
 
 export interface AppOptions {
   workspaceRoot: string;
   /** Public origin of the edge, used for CORS. */
   webOrigin?: string;
   version?: string;
+  /**
+   * Authentication. When present and enabled, every /api route except the
+   * health probe and the auth endpoints requires a valid session.
+   */
+  auth?: AuthConfig;
 }
 
 export interface App {
@@ -26,9 +32,14 @@ export interface App {
   ready(): Promise<void>;
   readonly files: FileService;
   readonly exec: ExecService;
+  /** Present only when authentication was configured. */
+  readonly auth: AuthService | null;
 }
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
+
+/** Cookie carrying the signed session token. */
+export const SESSION_COOKIE = "weber_session";
 
 export function createApp(options: AppOptions): App {
   const files = new FileService(options.workspaceRoot);
@@ -36,12 +47,35 @@ export function createApp(options: AppOptions): App {
   const startedAt = Date.now();
   const version = options.version ?? "0.1.0";
   const webOrigin = options.webOrigin ?? "*";
+  const auth = options.auth ? new AuthService(options.auth) : null;
+  /** True when requests must carry a session. */
+  const authRequired = auth?.enabled ?? false;
 
   const json = (data: unknown, status = 200): Response =>
     new Response(JSON.stringify(data), {
       status,
       headers: { ...JSON_HEADERS, ...corsHeaders(webOrigin) },
     });
+
+  /** Routes reachable without a session, even when auth is required. */
+  const PUBLIC_PATHS = new Set([
+    "/api/health",
+    "/api/auth/status",
+    "/api/auth/device",
+    "/api/auth/poll",
+    "/api/auth/logout",
+  ]);
+
+  const readSession = (request: Request): string | undefined => {
+    const header = request.headers.get("cookie");
+    if (!header) return undefined;
+    for (const part of header.split(";")) {
+      const [name, ...rest] = part.trim().split("=");
+      if (name === SESSION_COOKIE) return decodeURIComponent(rest.join("="));
+    }
+    return undefined;
+  };
+
 
   const fail = (status: number, error: string): Response => json({ error }, status);
 
@@ -50,6 +84,11 @@ export function createApp(options: AppOptions): App {
     if (err instanceof SafePathError) {
       // A path that tries to leave the sandbox is a bad request, not a 500.
       return fail(400, err.message);
+    }
+    if (err instanceof AuthError) {
+      // 428 (pending) and 429 (slow down) are flow control, not failures, and
+      // the client needs the distinction to poll correctly.
+      return fail(err.status, err.message);
     }
     const message = err instanceof Error ? err.message : String(err);
     if (/^not found/i.test(message)) return fail(404, message);
@@ -66,6 +105,69 @@ export function createApp(options: AppOptions): App {
   const handle = async (request: Request, url: URL): Promise<Response> => {
     const path = url.pathname;
     const method = request.method.toUpperCase();
+
+    // ---- auth -------------------------------------------------------------
+    if (path === "/api/auth/status" && method === "GET") {
+      const session = auth ? await auth.verifySession(readSession(request)) : null;
+      return json({
+        required: authRequired,
+        authenticated: session !== null,
+        login: session?.login ?? null,
+        // Where to send the user to approve the device code.
+        clientConfigured: auth?.enabled ?? false,
+      });
+    }
+
+    if (path === "/api/auth/device" && method === "POST") {
+      if (!auth) return fail(503, "authentication is not configured");
+      const device = await auth.startDeviceFlow();
+      return json({
+        userCode: device.user_code,
+        verificationUri: device.verification_uri,
+        expiresIn: device.expires_in,
+        interval: device.interval,
+        // The device code is the secret half; it stays server-side in the
+        // response only because the client must echo it back to /poll.
+        deviceCode: device.device_code,
+      });
+    }
+
+    if (path === "/api/auth/poll" && method === "POST") {
+      if (!auth) return fail(503, "authentication is not configured");
+      const body = await readJson(request);
+      if (typeof body?.deviceCode !== "string") {
+        return fail(400, "body must include a 'deviceCode' string");
+      }
+      const { token, user } = await auth.pollForToken(body.deviceCode);
+      const session = await auth.createSession(user);
+      return new Response(JSON.stringify({ ok: true, login: user.login }), {
+        status: 200,
+        headers: {
+          ...JSON_HEADERS,
+          ...corsHeaders(webOrigin),
+          "set-cookie": sessionCookie(session, auth.sessionTtl()),
+        },
+      });
+    }
+
+    if (path === "/api/auth/logout" && method === "POST") {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          ...JSON_HEADERS,
+          ...corsHeaders(webOrigin),
+          "set-cookie": sessionCookie("", 0),
+        },
+      });
+    }
+
+    // Everything below this line touches the filesystem or runs commands.
+    if (authRequired && !PUBLIC_PATHS.has(path)) {
+      const session = await auth!.verifySession(readSession(request));
+      if (!session) {
+        return fail(401, "authentication required");
+      }
+    }
 
     // ---- health -----------------------------------------------------------
     if (path === "/api/health" && method === "GET") {
@@ -198,6 +300,7 @@ export function createApp(options: AppOptions): App {
   return {
     files,
     exec,
+    auth,
     async ready() {
       await files.ensureRoot();
     },
@@ -225,6 +328,25 @@ function corsHeaders(origin: string): Record<string, string> {
     "access-control-allow-headers": "content-type",
     "access-control-max-age": "600",
   };
+}
+
+/**
+ * The session cookie.
+ *
+ * `HttpOnly` keeps it away from JavaScript (so an XSS cannot exfiltrate it),
+ * `SameSite=Lax` blocks cross-site submission while still allowing the top-level
+ * navigation back from GitHub, and `Secure` is set because the deployed edge is
+ * reached over HTTPS or an SSH tunnel.
+ */
+function sessionCookie(token: string, maxAgeSeconds: number): string {
+  return [
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Secure",
+    `Max-Age=${maxAgeSeconds}`,
+  ].join("; ");
 }
 
 /** Parse a JSON body, treating malformed input as an empty object. */

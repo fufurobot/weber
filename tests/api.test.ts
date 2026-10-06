@@ -244,6 +244,157 @@ describe("notebook API", () => {
   });
 });
 
+describe("authentication guard", () => {
+  const SECRET = "guard-test-secret-long-enough";
+  let guarded: ReturnType<typeof createApp>;
+
+  beforeEach(async () => {
+    guarded = createApp({
+      workspaceRoot: root,
+      auth: { clientId: "Iv1.test", allowedLogins: ["fufurobot"], sessionSecret: SECRET },
+    });
+    await guarded.ready();
+  });
+
+  async function hit(path: string, init: RequestInit = {}): Promise<{ status: number; json: any }> {
+    const res = await guarded.fetch(new Request(`http://localhost${path}`, init));
+    const text = await res.text();
+    let parsed: any = undefined;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      /* non-JSON */
+    }
+    return { status: res.status, json: parsed };
+  }
+
+  test("exposes whether auth is required, without a session", async () => {
+    const r = await hit("/api/auth/status");
+    expect(r.status).toBe(200);
+    expect(r.json.required).toBe(true);
+    expect(r.json.authenticated).toBe(false);
+  });
+
+  test("health stays public so orchestration can probe it", async () => {
+    expect((await hit("/api/health")).status).toBe(200);
+  });
+
+  test("blocks file listing without a session", async () => {
+    const r = await hit("/api/fs/list?path=");
+    expect(r.status).toBe(401);
+    expect(r.json.error).toMatch(/authentication required/i);
+  });
+
+  test("blocks reading a file without a session", async () => {
+    expect((await hit("/api/fs/file?path=x.txt")).status).toBe(401);
+  });
+
+  test("blocks writing a file without a session, and does not write it", async () => {
+    const r = await hit("/api/fs/file?path=x.txt", {
+      method: "PUT",
+      body: JSON.stringify({ contents: "pwned" }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(r.status).toBe(401);
+    // The guard must run before the handler, not merely mask its response.
+    expect(await guarded.files.search("x.txt")).toEqual([]);
+  });
+
+  test("blocks running a command without a session", async () => {
+    const r = await hit("/api/tools/run", {
+      method: "POST",
+      body: JSON.stringify({ argv: ["bun", "--version"] }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(r.status).toBe(401);
+  });
+
+  test("blocks the notebook without a session", async () => {
+    const r = await hit("/api/notebook/run", {
+      method: "POST",
+      body: JSON.stringify({ cells: [{ id: "a", code: "const a = 1;" }] }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(r.status).toBe(401);
+  });
+
+  test("rejects a forged cookie", async () => {
+    const r = await hit("/api/fs/list?path=", {
+      headers: { cookie: `weber_session=${btoa("forged")}.deadbeef` },
+    });
+    expect(r.status).toBe(401);
+  });
+
+  test("a valid session grants access", async () => {
+    const token = await guarded.auth!.createSession({ login: "fufurobot", id: 1 });
+    const r = await hit("/api/fs/list?path=", {
+      headers: { cookie: `weber_session=${encodeURIComponent(token)}` },
+    });
+    expect(r.status).toBe(200);
+    expect(Array.isArray(r.json.entries)).toBe(true);
+  });
+
+  test("a session minted for a login that is no longer allowed is refused", async () => {
+    // Same secret, so the signature stays valid; only the allow-list changes.
+    // This is the revocation path: removing a login must take effect at once,
+    // not whenever the existing session happens to expire.
+    const revoked = createApp({
+      workspaceRoot: root,
+      auth: { clientId: "Iv1.test", allowedLogins: ["fufurobot"], sessionSecret: SECRET },
+    });
+    await revoked.ready();
+    const token = await revoked.auth!.createSession({ login: "fufurobot", id: 1 });
+
+    const tightened = createApp({
+      workspaceRoot: root,
+      auth: { clientId: "Iv1.test", allowedLogins: ["someone-else"], sessionSecret: SECRET },
+    });
+    await tightened.ready();
+
+    const res = await tightened.fetch(
+      new Request("http://localhost/api/fs/list?path=", {
+        headers: { cookie: `weber_session=${encodeURIComponent(token)}` },
+      }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  test("logout clears the cookie", async () => {
+    const res = await guarded.fetch(
+      new Request("http://localhost/api/auth/logout", { method: "POST" }),
+    );
+    const cookie = res.headers.get("set-cookie") ?? "";
+    expect(cookie).toContain("weber_session=");
+    expect(cookie).toMatch(/Max-Age=0/);
+  });
+
+  test("the session cookie is HttpOnly, Secure and SameSite", async () => {
+    const res = await guarded.fetch(
+      new Request("http://localhost/api/auth/logout", { method: "POST" }),
+    );
+    const cookie = res.headers.get("set-cookie") ?? "";
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("Secure");
+    expect(cookie).toContain("SameSite=Lax");
+  });
+
+  test("auth endpoints report 503 when not configured", async () => {
+    const plain = createApp({ workspaceRoot: root });
+    await plain.ready();
+    const res = await plain.fetch(
+      new Request("http://localhost/api/auth/device", { method: "POST" }),
+    );
+    expect(res.status).toBe(503);
+  });
+
+  test("without auth configured, routes stay open (the loopback default)", async () => {
+    const plain = createApp({ workspaceRoot: root });
+    await plain.ready();
+    const res = await plain.fetch(new Request("http://localhost/api/fs/list?path="));
+    expect(res.status).toBe(200);
+  });
+});
+
 describe("routing", () => {
   test("unknown API routes return 404 JSON", async () => {
     const r = await req("GET", "/api/nope");
