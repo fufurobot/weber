@@ -68,9 +68,17 @@ describe("disruption budget", () => {
   });
 
   test("uses policy/v1, not the removed policy/v1beta1", () => {
-    // ml-hub still uses v1beta1, which was removed in Kubernetes 1.25.
-    expect(read("templates/pdb.yaml")).toMatch(/policy\/v1/);
-    expect(read("templates/pdb.yaml")).not.toMatch(/policy\/v1beta1/);
+    // ml-hub still uses v1beta1, which was removed in Kubernetes 1.25, so its
+    // budget silently does nothing on any current cluster.
+    //
+    // Checked on the apiVersion lines only: the file's own comment explains
+    // the v1beta1 mistake, and matching that text would make this test fail
+    // for documenting the very thing it guards against.
+    const versions = [...read("templates/pdb.yaml").matchAll(/^apiVersion:\s*(\S+)/gm)].map(
+      (m) => m[1],
+    );
+    expect(versions.length).toBeGreaterThan(0);
+    for (const v of versions) expect(v).toBe("policy/v1");
   });
 });
 

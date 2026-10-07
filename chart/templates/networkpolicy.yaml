@@ -63,4 +63,45 @@ spec:
     - ports:
         - protocol: TCP
           port: 8080
+---
+{{/*
+Egress policy for the core.
+
+The core runs user-supplied code, so what it may *initiate* matters more than
+what may reach it: an ingress-only policy stops nothing the pod starts, which
+is precisely the SSRF case. Blocking the cloud metadata endpoint is adopted
+from ml-hub, where a pod that can reach 169.254.169.254 may be able to read
+the node's instance credentials and escalate beyond the cluster entirely.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "weber.fullname" . }}-core-egress
+  labels:
+    {{- include "weber.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "weber.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: core
+  policyTypes:
+    - Egress
+  egress:
+    # DNS, or nothing resolves and the pod looks broken rather than restricted.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # The outside world, minus the metadata endpoint.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            {{- if .Values.networkPolicy.cloudMetadata.enabled }}
+            except:
+              - {{ .Values.networkPolicy.cloudMetadata.ip }}/32
+            {{- end }}
+    {{- with .Values.networkPolicy.coreEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 {{- end }}

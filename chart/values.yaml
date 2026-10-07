@@ -206,6 +206,37 @@ ingress:
 networkPolicy:
   enabled: true
 
+  # Block the cloud metadata endpoint.
+  #
+  # 169.254.169.254 is the link-local address most clouds use to expose
+  # instance credentials. Any code running in a pod that can reach it may be
+  # able to read the node's IAM role and escalate beyond the cluster entirely.
+  #
+  # Adopted from ml-hub (see docs/ML-HUB-ANALYSIS.md). Note that ml-hub only
+  # emits this on singleuser pods; there is no reason for it to apply less
+  # broadly here, since nothing in this chart needs instance metadata.
+  cloudMetadata:
+    enabled: true
+    ip: 169.254.169.254
+
+  # Egress rules applied to the core, which is the component running
+  # user-supplied code. Ingress-only policies stop nothing a pod initiates.
+  coreEgress: []
+    # - to:
+    #     - ipBlock:
+    #         cidr: 10.0.0.0/8
+
+# ---------------------------------------------------------------------------
+# Pod disruption budgets. Without one, a routine node drain can take the only
+# replica of a component down, which turns maintenance into an outage.
+# ---------------------------------------------------------------------------
+podDisruptionBudget:
+  enabled: true
+  gateway:
+    minAvailable: 1
+  core:
+    minAvailable: 1
+
 # ---------------------------------------------------------------------------
 # Pod defaults applied to every workload in the chart.
 # ---------------------------------------------------------------------------

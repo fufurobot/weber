@@ -1,0 +1,41 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{/*
+Disruption budgets.
+
+Without one, a routine node drain can evict the only replica of a component and
+turn cluster maintenance into an outage. Adopted from ml-hub, but corrected:
+that chart still uses policy/v1beta1, which was removed in Kubernetes 1.25, so
+its budget silently does nothing on any current cluster.
+*/}}
+{{- if .Values.gateway.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "weber.gateway.fullname" . }}
+  labels:
+    {{- include "weber.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.gateway.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "weber.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: gateway
+---
+{{- end }}
+{{- if .Values.core.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "weber.core.fullname" . }}
+  labels:
+    {{- include "weber.labels" . | nindent 4 }}
+    app.kubernetes.io/component: core
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.core.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "weber.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: core
+{{- end }}
+{{- end }}

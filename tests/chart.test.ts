@@ -192,6 +192,32 @@ describe("values completeness", () => {
   });
 });
 
+describe("template well-formedness", () => {
+  /**
+   * Every block opener needs a matching `{{ end }}`.
+   *
+   * An unbalanced template is a render failure, but only for the code path
+   * that reaches the missing end — so it can hide for a long time and then
+   * fail on someone else's cluster with a confusing parse error.
+   */
+  test("every template block is closed", () => {
+    const OPENERS = /\{\{-?\s*(if|range|with|define|block)\b/g;
+    for (const t of templates()) {
+      const opens = (t.body.match(OPENERS) ?? []).length;
+      const ends = (t.body.match(/\{\{-?\s*end\s*-?\}\}/g) ?? []).length;
+      expect(`${t.name}:${opens}/${ends}`).toBe(`${t.name}:${opens}/${opens}`);
+    }
+  });
+
+  test("template actions are balanced", () => {
+    for (const t of templates()) {
+      const opens = (t.body.match(/\{\{/g) ?? []).length;
+      const closes = (t.body.match(/\}\}/g) ?? []).length;
+      expect(opens).toBe(closes);
+    }
+  });
+});
+
 describe("guardrails", () => {
   test("the templates refuse to expose Weber without authentication", () => {
     // This is the single most important safety property in the chart: Weber
