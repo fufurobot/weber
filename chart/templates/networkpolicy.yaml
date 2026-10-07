@@ -1,0 +1,66 @@
+{{- if .Values.networkPolicy.enabled | default true }}
+{{/*
+Default-deny ingress, then allow only what is needed.
+
+The core service runs user-supplied code. If that code is ever able to reach
+the network, it should not be able to reach the cluster's other tenants or the
+Kubernetes API. A default-deny policy is cheap and is the difference between a
+contained incident and a lateral movement.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "weber.fullname" . }}-default-deny
+  labels:
+    {{- include "weber.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "weber.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "weber.fullname" . }}-allow-gateway
+  labels:
+    {{- include "weber.labels" . | nindent 4 }}
+spec:
+  # Only the gateway may reach the core: it is the single audited entry point.
+  podSelector:
+    matchLabels:
+      {{- include "weber.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: core
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "weber.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: gateway
+      ports:
+        - protocol: TCP
+          port: {{ .Values.core.service.port }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "weber.fullname" . }}-allow-ingress-controller
+  labels:
+    {{- include "weber.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "weber.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    # From anywhere in the cluster, because the ingress controller's namespace
+    # varies. The gateway itself holds no secrets and runs no user code.
+    - ports:
+        - protocol: TCP
+          port: 8080
+{{- end }}

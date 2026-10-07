@@ -1,0 +1,31 @@
+apiVersion: v2
+name: weber
+description: |
+  Weber — a portable polyglot IDE. Deploys a thin nginx/Bun gateway that fronts
+  a development toolchain (clang, Rust, TypeScript, Python), GitLab for project
+  management, Judge0 for sandboxed snippet execution, and DeepSeek Harness for
+  agentic programming.
+type: application
+
+# Chart version: bump on any template change.
+version: 0.1.0
+# Application version: the Weber release this chart deploys by default.
+appVersion: "0.1.0"
+
+keywords:
+  - ide
+  - development
+  - polyglot
+  - notebook
+  - hpc
+
+home: https://github.com/fufurobot/weber
+sources:
+  - https://github.com/fufurobot/weber
+
+maintainers:
+  - name: fufurobot
+    url: https://github.com/fufurobot
+
+annotations:
+  category: Development

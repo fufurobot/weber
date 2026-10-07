@@ -1,0 +1,42 @@
+{{- if .Values.core.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "weber.core.fullname" . }}
+  labels:
+    {{- include "weber.labels" . | nindent 4 }}
+    app.kubernetes.io/component: core
+spec:
+  # ClusterIP only: the core runs user code, so it must not be reachable
+  # except through the gateway.
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.core.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "weber.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: core
+{{- end }}
+---
+{{- if and .Values.core.enabled .Values.core.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "weber.core.fullname" . }}-workspaces
+  labels:
+    {{- include "weber.labels" . | nindent 4 }}
+    app.kubernetes.io/component: core
+spec:
+  accessModes:
+    {{- toYaml .Values.core.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.core.persistence.size }}
+  {{- if .Values.core.persistence.storageClassName }}
+  # Omitted entirely when empty, so the cluster default applies. Hardcoding a
+  # class name would break on any cluster that does not have it.
+  storageClassName: {{ .Values.core.persistence.storageClassName | quote }}
+  {{- end }}
+{{- end }}

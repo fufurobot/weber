@@ -1,0 +1,224 @@
+# Weber Helm values.
+#
+# Every knob an operator is likely to change lives here. Defaults are chosen to
+# be safe on a shared cluster: nothing is exposed publicly unless asked for,
+# every container is limited, and no credential is inlined.
+
+# ---------------------------------------------------------------------------
+# Gateway — the single entry point. nginx serves the SPA and proxies the
+# backend services. This is the only component that should be exposed.
+# ---------------------------------------------------------------------------
+gateway:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: weber-web
+    tag: ""            # defaults to .Chart.appVersion
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  # Health endpoints are served by nginx itself, so a probe cannot fail merely
+  # because a backend is slow to start.
+  probes:
+    path: /healthz
+
+# ---------------------------------------------------------------------------
+# Core — the Bun API, terminal websocket and notebook engine.
+# ---------------------------------------------------------------------------
+core:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: weber-core
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  service:
+    port: 8787
+
+  # The workspace volume. Use a ReadWriteOnce PVC on a normal cluster; on a
+  # single node, hostPath or emptyDir is often preferable.
+  persistence:
+    enabled: true
+    size: 10Gi
+    # Empty means "use the cluster default", which is the portable choice.
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      # A runaway notebook cell must not be able to take down the node.
+      cpu: "2"
+      memory: 2Gi
+
+  # Seed a starter workspace on first boot. Air-gapped installs may want this
+  # off so nothing is written unexpectedly.
+  seed: true
+
+# ---------------------------------------------------------------------------
+# Toolchain image. The core image ships Bun only; heavier compilers live in an
+# optional sidecar/init that populates a shared volume, because a single image
+# containing clang, Rust and Bun is multi-gigabyte and slow to pull.
+# ---------------------------------------------------------------------------
+toolchains:
+  enabled: true
+  image:
+    repository: weber-toolchains
+    tag: ""
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+# ---------------------------------------------------------------------------
+# Authentication. Off by default, which is safe only on a private network.
+# Turning this on is the prerequisite for any public exposure: Weber runs
+# user-supplied code.
+# ---------------------------------------------------------------------------
+auth:
+  enabled: false
+  # GitHub OAuth device flow needs only a client ID — no client secret.
+  githubClientId: ""
+  # Comma-separated logins permitted to sign in. Empty means deny everyone.
+  allowedLogins: ""
+  # Provide a pre-created secret, or let the chart generate one.
+  existingSecret: ""
+  sessionSecret: ""
+
+# ---------------------------------------------------------------------------
+# GitLab — project management and CI. Disabled by default: it is heavy and
+# most installations already have one.
+# ---------------------------------------------------------------------------
+gitlab:
+  enabled: false
+  # Point at an externally managed GitLab instead of deploying one.
+  externalUrl: ""
+  image:
+    repository: gitlab/gitlab-ce
+    tag: "17.4.2-ce.0"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 6Gi
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# ---------------------------------------------------------------------------
+# Judge0 — sandboxed code snippet execution, so untrusted snippets never reach
+# the core service's own shell.
+# ---------------------------------------------------------------------------
+judge0:
+  enabled: true
+  image:
+    repository: judge0/judge0
+    tag: "1.13.1"
+  service:
+    port: 2358
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  # Judge0 needs its own database and redis in a real deployment; this chart
+  # expects them to be provided via existingSecret to keep the chart honest
+  # about what it does not manage.
+  existingSecret: ""
+  postgres:
+    host: ""
+    database: judge0
+    username: judge0
+  redis:
+    host: ""
+
+# ---------------------------------------------------------------------------
+# DeepSeek Harness — agentic programming, as an in-cluster service.
+# ---------------------------------------------------------------------------
+dsh:
+  enabled: false
+  image:
+    repository: dsh
+    tag: latest
+  service:
+    port: 3080
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  existingSecret: ""
+
+# ---------------------------------------------------------------------------
+# Ingress. Off by default: exposing a service that runs user code should be a
+# deliberate act with authentication already configured.
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: weber.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# ---------------------------------------------------------------------------
+# Pod defaults applied to every workload in the chart.
+# ---------------------------------------------------------------------------
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Resource limits applied per user by the core service. These are application
+# limits, distinct from the Kubernetes limits above: the k8s limits cap the
+# pod, these cap an individual user inside it.
+workspaceLimits:
+  maxConcurrentActions: 2
+  maxDiskBytes: 104857600      # 100 MiB
+  maxActionsPerMinute: 30
+  maxNotebookRows: 10000
+  maxNotebookCells: 200

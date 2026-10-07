@@ -1,0 +1,93 @@
+{{- if .Values.gitlab.enabled }}
+{{/*
+An in-cluster GitLab is heavy: several GiB of memory and significant disk. It
+is off by default, and the gateway can point at an external instance instead
+via .Values.gitlab.externalUrl.
+*/}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "weber.fullname" . }}-gitlab
+  labels:
+    {{- include "weber.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gitlab
+spec:
+  serviceName: {{ include "weber.fullname" . }}-gitlab
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "weber.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: gitlab
+  template:
+    metadata:
+      labels:
+        {{- include "weber.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: gitlab
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: gitlab
+          image: "{{ .Values.gitlab.image.repository }}:{{ .Values.gitlab.image.tag }}"
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: GITLAB_OMNIBUS_CONFIG
+              value: |
+                external_url {{ .Values.gitlab.externalUrl | default "http://localhost" }}
+                nginx['listen_port'] = 80
+                # Keep PostgreSQL and Redis inside the container: a single-node
+                # chart should not pretend to manage a database cluster.
+                postgresql['enable'] = true
+                redis['enable'] = true
+                prometheus_monitoring['enable'] = false
+          readinessProbe:
+            httpGet:
+              path: /-/readiness
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /-/liveness
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 10
+          resources:
+            {{- toYaml .Values.gitlab.resources | nindent 12 }}
+          volumeMounts:
+            - name: gitlab-data
+              mountPath: /var/opt/gitlab
+  {{- if .Values.gitlab.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: gitlab-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.gitlab.persistence.size }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "weber.fullname" . }}-gitlab
+  labels:
+    {{- include "weber.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gitlab
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  selector:
+    {{- include "weber.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: gitlab
+{{- end }}

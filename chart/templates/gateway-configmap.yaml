@@ -1,0 +1,153 @@
+{{- include "weber.validateAuth" . -}}
+{{/*
+Gateway ConfigMap.
+
+nginx serves the SPA and proxies every backend under one host, so there is a
+single origin. A single origin is not cosmetic: it avoids CORS entirely and
+means one TLS certificate covers everything.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "weber.gateway.fullname" . }}-config
+  labels:
+    {{- include "weber.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+data:
+  nginx.conf: |
+    worker_processes auto;
+    error_log /dev/stderr warn;
+    pid /tmp/nginx.pid;
+
+    events { worker_connections 1024; }
+
+    http {
+      include       /etc/nginx/mime.types;
+      default_type  application/octet-stream;
+
+      # /tmp because the container filesystem may be read-only.
+      client_body_temp_path /tmp/client_body;
+      proxy_temp_path       /tmp/proxy;
+      fastcgi_temp_path     /tmp/fastcgi;
+      uwsgi_temp_path       /tmp/uwsgi;
+      scgi_temp_path        /tmp/scgi;
+
+      sendfile on;
+      keepalive_timeout 65;
+
+      # Websocket upgrade, but only when the client actually asked for one.
+      map $http_upgrade $connection_upgrade {
+        default upgrade;
+        ''      close;
+      }
+
+      upstream weber_core {
+        server {{ include "weber.core.fullname" . }}:{{ .Values.core.service.port }};
+        keepalive 32;
+      }
+
+      {{- if .Values.judge0.enabled }}
+      upstream judge0 {
+        server {{ include "weber.fullname" . }}-judge0:{{ .Values.judge0.service.port }};
+      }
+      {{- end }}
+
+      {{- if .Values.gitlab.enabled }}
+      upstream gitlab {
+        server {{ include "weber.fullname" . }}-gitlab:80;
+      }
+      {{- end }}
+
+      {{- if .Values.dsh.enabled }}
+      upstream dsh {
+        server {{ include "weber.fullname" . }}-dsh:{{ .Values.dsh.service.port }};
+      }
+      {{- end }}
+
+      server {
+        listen 8080;
+        server_name _;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Probes must not depend on a backend being up.
+        location = /healthz {
+          access_log off;
+          add_header Content-Type text/plain;
+          return 200 "ok\n";
+        }
+
+        # The shell must never be cached, or a deploy would not take effect.
+        location = /index.html {
+          add_header Cache-Control "no-store, must-revalidate" always;
+        }
+
+        # Hashed assets are content-addressed and safe to cache hard.
+        location /assets/ {
+          add_header Cache-Control "public, max-age=31536000, immutable" always;
+          try_files $uri =404;
+        }
+
+        location /api/ {
+          proxy_pass http://weber_core;
+          proxy_http_version 1.1;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_read_timeout 3600s;
+          proxy_buffering off;
+        }
+
+        location /ws {
+          proxy_pass http://weber_core;
+          proxy_http_version 1.1;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection $connection_upgrade;
+          proxy_set_header Host $host;
+          proxy_read_timeout 3600s;
+          proxy_send_timeout 3600s;
+          proxy_buffering off;
+        }
+
+        {{- if .Values.judge0.enabled }}
+        location /judge0/ {
+          proxy_pass http://judge0/;
+          proxy_http_version 1.1;
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        {{- end }}
+
+        {{- if .Values.gitlab.enabled }}
+        location /gitlab/ {
+          proxy_pass http://gitlab/;
+          proxy_http_version 1.1;
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          # GitLab uses websockets for live logs and terminal.
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection $connection_upgrade;
+          proxy_read_timeout 3600s;
+        }
+        {{- end }}
+
+        {{- if .Values.dsh.enabled }}
+        location /dsh/ {
+          proxy_pass http://dsh/;
+          proxy_http_version 1.1;
+          proxy_set_header Host $host;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection $connection_upgrade;
+          proxy_read_timeout 3600s;
+        }
+        {{- end }}
+
+        # SPA history fallback: unknown paths render the app, not a 404.
+        location / {
+          try_files $uri $uri/ /index.html;
+        }
+      }
+    }

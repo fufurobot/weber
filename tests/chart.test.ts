@@ -64,12 +64,23 @@ describe("workloads", () => {
   test("every container declares resource requests and limits", () => {
     // A pod without limits can starve a shared cluster; this is the single
     // most common cause of a rejected or disruptive deployment.
+    //
+    // Scoped to workload templates: a Service's `- name: http` is a port, not
+    // a container, and matching it would make this check meaningless.
     for (const t of templates()) {
-      const containers = (t.body.match(/^\s*- name:/gm) ?? []).length;
-      const resources = (t.body.match(/resources:/g) ?? []).length;
-      if (containers > 0) {
-        expect(resources).toBeGreaterThanOrEqual(1);
-      }
+      if (!/kind:\s*(Deployment|StatefulSet)/.test(t.body)) continue;
+      expect(t.body).toMatch(/resources:/);
+      expect(t.body).toMatch(/\.Values\.\w+\.resources/);
+    }
+
+    // Every resources block in values must define both halves: requests for
+    // scheduling, limits for containment.
+    const blocks = read("values.yaml").split(/^\s{2}resources:/m).slice(1);
+    expect(blocks.length).toBeGreaterThan(0);
+    for (const block of blocks) {
+      const head = block.slice(0, 400);
+      expect(head).toMatch(/requests:/);
+      expect(head).toMatch(/limits:/);
     }
   });
 
@@ -98,16 +109,64 @@ describe("ingress and routing", () => {
 
   test("the gateway routes the service prefixes the RFC lists", () => {
     // ml-hub-style services plus the three integrations, behind one host.
-    const conf = exists("files/nginx.conf") ? read("files/nginx.conf") : "";
-    for (const path of ["/api", "/ws", "/gitlab", "/judge0", "/dsh"]) {
+    // The routing lives in a ConfigMap so it is delivered atomically with the
+    // Deployment rather than baked into an image.
+    const conf = read("templates/gateway-configmap.yaml");
+    for (const path of ["/api", "/ws", "/judge0", "/gitlab", "/dsh"]) {
       expect(conf).toContain(path);
     }
   });
 
   test("websocket upgrades are proxied", () => {
-    const conf = exists("files/nginx.conf") ? read("files/nginx.conf") : "";
+    const conf = read("templates/gateway-configmap.yaml");
     expect(conf).toMatch(/Upgrade/);
     expect(conf).toMatch(/proxy_set_header\s+Connection/);
+  });
+
+  test("the gateway config is delivered as a ConfigMap, not an image", () => {
+    expect(exists("templates/gateway-configmap.yaml")).toBe(true);
+  });
+
+  test("changing the config rolls the gateway pods", () => {
+    // Without a checksum annotation a ConfigMap edit silently does nothing
+    // until someone restarts by hand.
+    expect(read("templates/gateway-deployment.yaml")).toMatch(/checksum\/config/);
+  });
+
+  test("the core is not exposed beyond ClusterIP", () => {
+    const svc = read("templates/core-service.yaml");
+    expect(svc).toMatch(/type:\s*ClusterIP/);
+    expect(svc).not.toMatch(/type:\s*(NodePort|LoadBalancer)/);
+  });
+});
+
+describe("guardrails", () => {
+  test("the templates refuse to expose Weber without authentication", () => {
+    // This is the single most important safety property in the chart: Weber
+    // executes user-supplied code.
+    const helpers = read("templates/_helpers.tpl");
+    expect(helpers).toMatch(/weber\.validateAuth/);
+    expect(helpers).toMatch(/fail "refusing to install/);
+  });
+
+  test("the validation runs on every render", () => {
+    expect(read("templates/gateway-configmap.yaml")).toMatch(/include "weber\.validateAuth"/);
+  });
+
+  test("an empty allow-list is rejected rather than silently denying everyone", () => {
+    expect(read("templates/_helpers.tpl")).toMatch(/allowedLogins/);
+  });
+
+  test("a network policy defaults to deny", () => {
+    const np = read("templates/networkpolicy.yaml");
+    expect(np).toMatch(/kind:\s*NetworkPolicy/);
+    expect(np).toMatch(/default-deny/);
+  });
+
+  test("only the gateway may reach the core", () => {
+    const np = read("templates/networkpolicy.yaml");
+    expect(np).toMatch(/allow-gateway/);
+    expect(np).toMatch(/component: gateway/);
   });
 });
 
@@ -129,12 +188,25 @@ describe("security defaults", () => {
   });
 
   test("pods run with a restricted security context by default", () => {
-    const all = templates()
-      .map((t) => t.body)
-      .join("\n");
-    expect(all).toMatch(/securityContext/);
-    expect(all).toMatch(/runAsNonRoot:\s*true/);
-    expect(all).toMatch(/allowPrivilegeEscalation:\s*false/);
+    // The contexts come from values, applied to every pod via toYaml, so the
+    // guarantee lives in values.yaml plus the fact that each pod references it.
+    const values = read("values.yaml");
+    expect(values).toMatch(/podSecurityContext:/);
+    expect(values).toMatch(/runAsNonRoot:\s*true/);
+    expect(values).toMatch(/securityContext:/);
+    expect(values).toMatch(/allowPrivilegeEscalation:\s*false/);
+    expect(values).toMatch(/seccompProfile:/);
+
+    // And every workload must actually apply them.
+    for (const t of templates()) {
+      if (!/kind:\s*(Deployment|StatefulSet)/.test(t.body)) continue;
+      expect(t.body).toMatch(/\.Values\.podSecurityContext/);
+      expect(t.body).toMatch(/\.Values\.securityContext/);
+    }
+  });
+
+  test("capabilities are dropped", () => {
+    expect(read("values.yaml")).toMatch(/drop:\s*\n\s*-\s*ALL/);
   });
 });
 
@@ -146,11 +218,20 @@ describe("portability", () => {
   });
 
   test("nothing hardcodes a cloud-specific storage class", () => {
-    const all = templates()
-      .map((t) => t.body)
-      .join("\n");
-    // A storageClassName would break on any cluster that does not have it.
-    expect(all).not.toMatch(/storageClassName:\s*(?!\{\{)/);
+    // A hardcoded storageClassName would break on any cluster lacking it, and
+    // the default in values must therefore be empty.
+    const values = read("values.yaml");
+    expect(values).toMatch(/storageClassName:\s*""/);
+    // And the template must only emit it when set.
+    const svc = read("templates/core-service.yaml");
+    expect(svc).toMatch(/if \.Values\.core\.persistence\.storageClassName/);
+  });
+
+  test("image tags fall back to the chart appVersion", () => {
+    // Lets an operator install a released chart without pinning a tag, while
+    // still allowing an override to a specific digest.
+    const helpers = read("templates/_helpers.tpl");
+    expect(helpers).toMatch(/default \.Chart\.AppVersion \.Values\.\w+\.image\.tag/);
   });
 
   test("podman-compose can use the same built images", () => {
