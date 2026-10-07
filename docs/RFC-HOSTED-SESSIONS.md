@@ -54,18 +54,25 @@ and 3, it is an alternative to them.
 
 ## Per-toolchain reality check
 
-Recorded as claims to be verified rather than assumed; see the research
-summary referenced in the decision log.
+Verified against first-party sources in
+[WASM-TOOLCHAINS-2026.md](WASM-TOOLCHAINS-2026.md). Two of my original claims
+were **wrong** and are corrected here.
 
 | Toolchain | WASM in browser? | Why |
 |---|---|---|
-| **Pyodide (Python)** | **Yes, works today** | Genuine WASM CPython, mature. This one is not in doubt. |
-| **TypeScript** | Partly — esbuild-wasm, SWC, tsgo transpile | But **Bun cannot be compiled to WASM** (it wraps JavaScriptCore). The README's "Bun runtime" claim does not survive the move. |
-| **Rust** | `rustc` compiles to WASM only for restricted targets | No `.cargo`, no crates.io, no proc macros. Real `cargo build` is server-side. |
-| **C/C++** | clang→WASM can compile simple files | **clangd cannot run in a browser** — it needs a real FS, threads and process spawning. Every browser IDE ships LSP *server-side* for this reason. |
-| **clangd (LSP)** | **No** | This is why vscode.dev delegates language servers to a remote or WASM-shim with reduced features. |
+| **Pyodide (Python)** | **Yes, mature** | ~400 packages incl. numpy/pandas/scipy. No threads, no sockets, `ssl` is a stub, and **native extensions are not user-installable** — micropip takes pure-Python or prebuilt wasm32 wheels only. |
+| **TypeScript** | Transpile/bundle yes — esbuild-wasm, SWC, tsc | **Bun cannot be compiled to WASM** (it wraps JavaScriptCore, which has no wasm32 target). Note the common conflation: "Bun *supports* WebAssembly" ≠ "Bun compiled *to* WebAssembly". |
+| **C/C++ compile** | **Yes, works** — wasm-clang | The author's own description is "still very much alpha demoware". Not production-grade. |
+| **clangd (LSP)** | **Yes — I was wrong** | [clangd-in-browser](https://github.com/guyutongxue/clangd-in-browser) genuinely runs. **But** it is multithreaded and therefore needs `SharedArrayBuffer`, which needs **COOP/COEP headers**. GitHub Pages will not send them. |
+| **Rust** | Analysis only — rust-analyzer WASM | `rustc` alone is blocked architecturally: proc macros load as dylibs (no `dlopen`), std needs a filesystem and threads. The Rust Playground is **server-side, a Docker container per toolchain**. |
 
-The pattern: **the editor can be static; the language intelligence cannot.**
+**Correction to my earlier claim:** I said clangd could not run in a browser.
+That was wrong — it can. The accurate statement is that it needs
+cross-origin isolation, which is a deployment constraint rather than an
+impossibility, and one that rules out plain GitHub Pages.
+
+The pattern still holds, for a sharper reason than I gave: **the editor can be
+static, the language intelligence needs headers a static host will not send.**
 
 ---
 
@@ -119,13 +126,38 @@ Pyodide + a TS transpiler, everything client-side, deployed to Pages.
 - **Note:** this is largely what the Pages demo already is, but with real
   Pyodide instead of a mock. That is a meaningful upgrade and a small job.
 
+### Option D — Full x86 emulation via v86, everything in the browser
+
+[**v86**](https://github.com/copy/v86) is an x86 PC emulator written in
+JavaScript/WASM. It boots a real Linux kernel in the browser and runs **native
+x86 binaries** through emulation rather than recompilation.
+
+- **Buys:** what no WASM port can — a real filesystem, real processes, and
+  `rustc`, `cargo`, `clang`, `gcc` **as unmodified native binaries**. This is
+  the only route that gets Rust and C++ working with an entirely static host,
+  which is the goal in plan #4.
+- **Costs, stated plainly:**
+  - **Speed.** This is interpretation, not JIT. Expect 10–100× slower than
+    native depending on workload. Fine for a snippet; painful for `cargo build`
+    of a real project.
+  - **Memory.** A Linux image plus a Rust sysroot is hundreds of MB, all in the
+    tab, and the browser will kill the tab if it exceeds its budget.
+  - **Payload size.** Unlike Pyodide's ~6.4 MB, a bootable image with
+    toolchains is a large first load.
+  - **COOP/COEP again**, for `SharedArrayBuffer` — so still not plain Pages.
+- **Verdict:** the honest answer to "support rust and c++ on GitHub Pages only".
+  It works; it is slow; it is not a substitute for server-side compute. Set
+  expectations in the UI rather than letting a user assume native speed.
+
 ### Option C — HPC/remote, thin browser client
 
 Weber as a frontend to a cluster you already have access to (Singularity
 image), no hosting problem at all.
 
 - **Buys:** real compute, real filesystem, no abuse surface — it is your
-  cluster account.
+  cluster account. Research confirms this is **the only architecture anyone
+  actually ships for HPC**: Open OnDemand reverse-proxies to apps on compute
+  nodes. WASM cannot host MPI, GPUs, Slurm or Apptainer.
 - **Costs:** only useful to people who already have cluster access. Not a
   public service.
 
@@ -176,3 +208,31 @@ hardest problem first.
 |---|---|---|
 | — | Split the RFC out | The three requirements were being treated as one project |
 | — | Recommended B + C over A | A is the expensive path and cannot be made safe on the stated host |
+| — | **Corrected: clangd *can* run in-browser** | Research found clangd-in-browser working; the real blocker is COOP/COEP headers, which Pages will not send |
+| — | **Added Option D (v86)** | The only static-host route to real Rust and C++; accepted as slow |
+
+---
+
+## The four deliverables, and what each actually costs
+
+The plan as agreed:
+
+| # | Deliverable | Reality |
+|---|---|---|
+| 1 | Helm chart (k8s + podman) with a gateway fronting ml-hub-style services, GitLab, Judge0, DSH | Ordinary engineering. This is the **only** option that runs real `cargo`/`clang` at native speed. Needs a cluster. |
+| 2 | Single image (Singularity/AppImage) on Heroku, GitHub OAuth, public | Viable **if** sessions are ephemeral and per-session isolation is process-level. Weaker than Binder; must be documented, not hidden. |
+| 3 | Fork marimo → Pyodide notebook + a TypeScript core, Pages-only | Genuinely achievable and safe. Pyodide is the one mature in-browser runtime; TS is transpile-only (no arbitrary npm packages). |
+| 4 | v86 for Rust and C++ on Pages-only | Achievable, and the *only* way to get those toolchains statically. Accept it is 10–100× slow and heavy, and say so in the UI. |
+
+**Deliverable 1 is the only one that gives native-speed toolchains.** 3 and 4
+are browser-only and therefore slow or partial by construction. That trade is
+inherent, not a limitation of the implementation.
+
+---
+
+## Recommendation
+
+Build **1** for real work, **3** for reach, **4** for the Rust/C++-on-Pages
+goal, and defer **2** — Heroku cannot nest containers, so its isolation would
+be process-level on a shared dyno, which is the weakest option for running
+strangers' code.
