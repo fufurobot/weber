@@ -91,3 +91,60 @@ jobs:
             --add-host core:127.0.0.1 \
             -v "$PWD/compose/nginx.conf:/etc/nginx/conf.d/weber.conf:ro" \
             nginx:1.27-alpine nginx -t
+
+  chart:
+    name: Helm chart renders and refuses unsafe config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Lint the chart
+        run: helm lint chart
+
+      # Defaults must render, or nobody can install the chart at all.
+      - name: Render with default values
+        run: helm template weber ./chart > /tmp/default.yaml
+
+      - name: Assert nothing is publicly exposed by default
+        run: |
+          if grep -qE 'type: (NodePort|LoadBalancer)' /tmp/default.yaml; then
+            echo "FAIL: a Service is exposed by default"; exit 1
+          fi
+          if grep -q 'kind: Ingress' /tmp/default.yaml; then
+            echo "FAIL: an Ingress is created by default"; exit 1
+          fi
+          echo "ok: nothing exposed by default"
+
+      # The safety property: exposing Weber without auth must FAIL, not warn.
+      - name: Exposing without auth must be refused
+        run: |
+          if helm template weber ./chart --set ingress.enabled=true > /dev/null 2>&1; then
+            echo "FAIL: the chart rendered an unauthenticated public deployment"; exit 1
+          fi
+          echo "ok: refused to render an unauthenticated public deployment"
+
+      - name: An empty allow-list must be refused
+        run: |
+          if helm template weber ./chart \
+               --set ingress.enabled=true --set auth.enabled=true \
+               --set auth.githubClientId=Iv1.test --set auth.allowedLogins= \
+               > /dev/null 2>&1; then
+            echo "FAIL: rendered with an empty allow-list"; exit 1
+          fi
+          echo "ok: refused an empty allow-list"
+
+      - name: A fully configured deployment must render
+        run: |
+          helm template weber ./chart \
+            --set ingress.enabled=true \
+            --set auth.enabled=true \
+            --set auth.githubClientId=Iv1.test \
+            --set auth.allowedLogins=someone \
+            --set gitlab.enabled=true \
+            --set dsh.enabled=true > /tmp/full.yaml
+          echo "ok: full configuration renders"
+          grep -c 'kind: Deployment' /tmp/full.yaml
