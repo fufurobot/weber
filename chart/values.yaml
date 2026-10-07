@@ -4,6 +4,13 @@
 # be safe on a shared cluster: nothing is exposed publicly unless asked for,
 # every container is limited, and no credential is inlined.
 
+# Name overrides. Declared explicitly (rather than left implicit) so that every
+# `.Values.X` a template dereferences exists here — a missing key fails Helm
+# rendering with a nil-pointer error, which is a confusing way to learn about a
+# typo.
+nameOverride: ""
+fullnameOverride: ""
+
 # ---------------------------------------------------------------------------
 # Gateway — the single entry point. nginx serves the SPA and proxies the
 # backend services. This is the only component that should be exposed.
@@ -190,6 +197,14 @@ ingress:
         - path: /
           pathType: Prefix
   tls: []
+
+# ---------------------------------------------------------------------------
+# Network policy. Default-deny, with only the gateway able to reach the core.
+# Disable only if the cluster has no CNI that enforces NetworkPolicy, where the
+# resources would be inert anyway.
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
 
 # ---------------------------------------------------------------------------
 # Pod defaults applied to every workload in the chart.

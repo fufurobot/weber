@@ -1,4 +1,4 @@
-{{- if .Values.networkPolicy.enabled | default true }}
+{{- if .Values.networkPolicy.enabled }}
 {{/*
 Default-deny ingress, then allow only what is needed.
 

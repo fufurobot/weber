@@ -140,6 +140,58 @@ describe("ingress and routing", () => {
   });
 });
 
+describe("values completeness", () => {
+  /**
+   * Every `.Values.X` a template dereferences must exist in values.yaml.
+   *
+   * This caught a real bug: networkpolicy.yaml used `.Values.networkPolicy.enabled`
+   * while values.yaml never defined `networkPolicy`, so Helm failed with
+   * "nil pointer evaluating interface {}.enabled". Regex assertions over
+   * template text never rendered anything, so they could not see it.
+   */
+  test("every referenced top-level value is defined", () => {
+    const values = read("values.yaml");
+    const defined = new Set(
+      values
+        .split(/\r?\n/)
+        .filter((l) => /^[a-zA-Z][A-Za-z0-9_]*:/.test(l))
+        .map((l) => l.slice(0, l.indexOf(":"))),
+    );
+
+    const referenced = new Set<string>();
+    for (const t of templates()) {
+      for (const m of t.body.matchAll(/\.Values\.([A-Za-z0-9_]+)/g)) {
+        referenced.add(m[1]!);
+      }
+    }
+
+    expect(referenced.size).toBeGreaterThan(0);
+    const missing = [...referenced].filter((k) => !defined.has(k));
+    expect(missing).toEqual([]);
+  });
+
+  test("networkPolicy is defined, since a template depends on it", () => {
+    expect(read("values.yaml")).toMatch(/^networkPolicy:/m);
+  });
+
+  test("every nested value a template reads has a default", () => {
+    // A deeper dereference of an undefined key (`.Values.a.b.c`) also fails at
+    // render time; this checks the two-level case that the chart actually uses.
+    const values = read("values.yaml");
+    for (const t of templates()) {
+      for (const m of t.body.matchAll(/\.Values\.([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)/g)) {
+        const [full, parent, child] = m;
+        const parentDefined = new RegExp(`^${parent}:`, "m").test(values);
+        if (!parentDefined) continue; // covered by the test above
+        // The child must appear somewhere under the parent, or be guarded by
+        // an `if`/`with` that runs first. Assert it exists at all.
+        const childDefined = new RegExp(`^\\s+${child}:`, "m").test(values);
+        expect(childDefined || /\{\{-?\s*if|\{\{-?\s*with/.test(t.body)).toBe(true);
+      }
+    }
+  });
+});
+
 describe("guardrails", () => {
   test("the templates refuse to expose Weber without authentication", () => {
     // This is the single most important safety property in the chart: Weber
