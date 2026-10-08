@@ -132,6 +132,101 @@ jobs:
           [ "$(code "$B/")" = "200" ] || fail "the SPA shell must stay public"
           echo "ok: health and the shell stay public"
 
+  build-images:
+    name: Build and smoke-test every image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the core image
+        run: docker build -f compose/Dockerfile.core -t weber-core:ci .
+
+      - name: Build the edge image
+        run: docker build -f compose/Dockerfile.web -t weber-web:ci .
+
+      - name: Build the single-image PaaS variant
+        run: docker build -f deploy/paas/Dockerfile -t weber-paas:ci .
+
+      # A successful build proves the layers are valid. It does NOT prove the
+      # container starts, binds, or answers its healthcheck — and every one of
+      # these images had never been built at all before this job existed.
+      - name: Smoke-test the core image
+        run: |
+          set -euo pipefail
+          docker run -d --name core \
+            -e CORE_HOST=0.0.0.0 -e CORE_PORT=8787 \
+            -e WORKSPACE_ROOT=/workspaces -e WEBER_SEED=1 \
+            weber-core:ci
+          fail() { echo "FAIL: $1"; docker logs core; exit 1; }
+
+          for i in $(seq 1 30); do
+            docker exec core wget -qO- http://127.0.0.1:8787/api/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+
+          docker exec core wget -qO- http://127.0.0.1:8787/api/health | grep -q '"status":"ok"' \
+            || fail "core health check failed"
+          echo "ok: core answers /api/health"
+
+          # Confirms the seed ran and the workspace is writable as the
+          # unprivileged user, which a permission mistake would break.
+          docker exec core wget -qO- 'http://127.0.0.1:8787/api/fs/list?path=' | grep -q README.md \
+            || fail "core did not seed its workspace"
+          echo "ok: core seeded its workspace"
+
+          docker exec core sh -c 'id -u' | grep -qv '^0$' || fail "core is running as root"
+          echo "ok: core is not root"
+
+      - name: Smoke-test the edge image unprivileged
+        run: |
+          set -euo pipefail
+          # No core upstream, so the SPA must still be served: this asserts the
+          # routing config parses and the shell is reachable.
+          docker run -d --name web -p 18080:8080 weber-web:ci
+          fail() { echo "FAIL: $1"; docker logs web; exit 1; }
+          sleep 4
+
+          # If nginx failed to write its pid or temp dirs as the nginx user it
+          # exits immediately, and this is where that shows up.
+          docker ps --filter name=web --filter status=running | grep -q web \
+            || fail "edge container is not running (likely a permissions failure)"
+
+          curl -sf -m 10 http://127.0.0.1:18080/healthz >/dev/null || fail "edge healthz failed"
+          echo "ok: edge healthz responds"
+
+          CT=$(curl -s -o /dev/null -w '%{content_type}' -m 10 http://127.0.0.1:18080/)
+          case "$CT" in text/html*) echo "ok: edge serves the SPA as $CT" ;;
+            *) fail "edge served $CT, expected text/html" ;; esac
+
+          docker exec web sh -c 'id -u' | grep -qv '^0$' || fail "edge is running as root"
+          echo "ok: edge is not root"
+
+      - name: Smoke-test the PaaS image on the platform PORT
+        run: |
+          set -euo pipefail
+          docker run -d --name paas -e PORT=9999 -p 19999:9999 weber-paas:ci
+          fail() { echo "FAIL: $1"; docker logs paas; exit 1; }
+
+          for i in $(seq 1 30); do
+            curl -sf -m 5 http://127.0.0.1:19999/api/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+
+          curl -sf -m 10 http://127.0.0.1:19999/api/health >/dev/null || fail "PaaS image ignored PORT"
+          echo "ok: PaaS image honours PORT"
+
+          CT=$(curl -s -o /dev/null -w '%{content_type}' -m 10 http://127.0.0.1:19999/)
+          case "$CT" in text/html*) echo "ok: PaaS image serves the SPA from the core" ;;
+            *) fail "PaaS image served $CT, expected text/html" ;; esac
+
+      - name: Container logs on failure
+        if: failure()
+        run: |
+          for c in core web paas; do
+            echo "=== $c ==="
+            docker logs "$c" 2>&1 | tail -40 || true
+          done
+
   e2e:
     name: Spawn-dependent tests
     runs-on: ubuntu-latest

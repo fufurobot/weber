@@ -13,16 +13,36 @@ COPY scripts ./scripts
 
 RUN bun run build:web
 
+# ---------------------------------------------------------------------------
 FROM nginx:1.27-alpine AS runtime
 
-# Our routing config replaces the stock default server.
+# The stock image runs as root, which nothing here needs: this container serves
+# static files and proxies. Dropping the privilege costs nothing and removes a
+# whole class of container-escape impact.
+#
+# Unprivileged nginx needs writable paths for its pid file, cache and temp
+# directories. `compose/nginx.conf` is only a server-block fragment included
+# from conf.d, so it CANNOT override those — they come from the stock main
+# config, which is why they are set here.
 RUN rm -f /etc/nginx/conf.d/default.conf
+
+COPY compose/nginx-unprivileged.conf /etc/nginx/nginx.conf
 COPY compose/nginx.conf /etc/nginx/conf.d/weber.conf
 COPY --from=build /app/dist/web /usr/share/nginx/html
 
+# Owned by nginx so the unprivileged master can write its pid and temp files.
+RUN mkdir -p /var/cache/nginx/client_temp /var/cache/nginx/proxy_temp \
+             /var/cache/nginx/fastcgi_temp /var/cache/nginx/uwsgi_temp \
+             /var/cache/nginx/scgi_temp \
+ && chown -R nginx:nginx /var/cache/nginx /usr/share/nginx/html
+
+# Ports below 1024 need privilege; 8080 is unprivileged and is what compose
+# publishes onto.
 EXPOSE 8080
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=5 \
     CMD wget -qO- http://127.0.0.1:8080/healthz || exit 1
+
+USER nginx
 
 CMD ["nginx", "-g", "daemon off;"]
