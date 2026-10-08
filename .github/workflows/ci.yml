@@ -180,14 +180,22 @@ jobs:
       - name: Smoke-test the edge image unprivileged
         run: |
           set -euo pipefail
-          # No core upstream, so the SPA must still be served: this asserts the
-          # routing config parses and the shell is reachable.
-          docker run -d --name web -p 18080:8080 weber-web:ci
-          fail() { echo "FAIL: $1"; docker logs web; exit 1; }
-          sleep 4
+          # nginx resolves upstream hostnames at CONFIG time, so it refuses to
+          # start at all if `core` does not resolve -- the same behaviour that
+          # broke the nginx -t check earlier. The edge is therefore tested
+          # against a real core on a shared network, which is also how it runs
+          # in production.
+          docker network create smoke
+          docker run -d --name smoke-core --network smoke \
+            -e CORE_HOST=0.0.0.0 -e CORE_PORT=8787 \
+            -e WORKSPACE_ROOT=/workspaces -e WEBER_SEED=1 \
+            weber-core:ci
+          docker run -d --name web --network smoke -p 18080:8080 weber-web:ci
+          fail() { echo "FAIL: $1"; docker logs web; docker logs smoke-core; exit 1; }
+          sleep 5
 
-          # If nginx failed to write its pid or temp dirs as the nginx user it
-          # exits immediately, and this is where that shows up.
+          # If nginx cannot write its pid or its temp dirs as the nginx user,
+          # it exits immediately and this is where that shows up.
           docker ps --filter name=web --filter status=running | grep -q web \
             || fail "edge container is not running (likely a permissions failure)"
 
@@ -197,6 +205,12 @@ jobs:
           CT=$(curl -s -o /dev/null -w '%{content_type}' -m 10 http://127.0.0.1:18080/)
           case "$CT" in text/html*) echo "ok: edge serves the SPA as $CT" ;;
             *) fail "edge served $CT, expected text/html" ;; esac
+
+          # The proxy path, which only works if the unprivileged config's temp
+          # directories are actually writable.
+          curl -sf -m 10 http://127.0.0.1:18080/api/health | grep -q '"status":"ok"' \
+            || fail "edge could not proxy /api to the core"
+          echo "ok: edge proxies /api to the core"
 
           docker exec web sh -c 'id -u' | grep -qv '^0$' || fail "edge is running as root"
           echo "ok: edge is not root"

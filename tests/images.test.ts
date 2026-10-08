@@ -95,6 +95,31 @@ describe("runtime contract", () => {
     }
   });
 
+  test("no image typechecks, because it cannot see the whole tree", () => {
+    // The core image runs `typecheck` while copying only src/ and tests/, but
+    // the tsconfig also covers web/. It therefore reported dozens of
+    // "cannot find module '../web/...'" errors for files that are not in the
+    // image at all. Non-fatal, it was noise; fatal, it needed the frontend in
+    // a backend image. Typechecking belongs to CI, which has the full tree and
+    // runs it blocking.
+    for (const df of DOCKERFILES) {
+      expect(`${df}:${/bun run typecheck/.test(read(df))}`).toBe(`${df}:false`);
+    }
+  });
+
+  test("the core image explains why it does not typecheck", () => {
+    // The reasoning must stay next to the code, or someone will helpfully add
+    // the typecheck back and reintroduce dozens of false "cannot find module"
+    // errors for files a backend image never contains.
+    const core = read("compose/Dockerfile.core");
+    const instructions = core
+      .split("\n")
+      .filter((l) => /^(RUN|COPY|CMD|ENTRYPOINT)\b/.test(l.trim()))
+      .join("\n");
+    expect(instructions).not.toMatch(/typecheck/);
+    expect(core).toMatch(/Compilation is checked in CI/);
+  });
+
   test("the nginx image supplies the writable paths nginx needs when unprivileged", () => {
     // Dropping to a non-root user breaks nginx unless its pid, cache and temp
     // directories are writable. A missing one is a container that exits

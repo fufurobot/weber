@@ -13,7 +13,8 @@ COPY package.json bun.lock* ./
 RUN bun install --production --frozen-lockfile || bun install --production
 
 # ---------------------------------------------------------------------------
-# build: full install plus a typecheck, so a broken image fails here.
+# build: full dependency install, so the runtime stage can copy production
+# dependencies without a second resolve.
 # ---------------------------------------------------------------------------
 FROM oven/bun:1.4-alpine AS build
 WORKDIR /app
@@ -26,8 +27,15 @@ COPY src ./src
 COPY tests ./tests
 COPY scripts ./scripts
 
-# Typecheck is advisory: it must not block an image when lib types drift.
-RUN bun run typecheck || echo "typecheck reported issues (non-fatal)"
+# Compilation is checked in CI, not here.
+#
+# This stage used to run `typecheck` non-fatally. The tsconfig also covers
+# `web/`, which is not copied into a backend image, so the compiler reported
+# dozens of "cannot find module '../web/...'" errors for files that genuinely
+# are not present. Keeping it was noise that proved nothing.
+#
+# CI typechecks the whole tree and BLOCKS on it, which is the version of this
+# check that has actually caught a bug. An image build should build.
 
 # ---------------------------------------------------------------------------
 # runtime: minimal surface, non-root, healthchecked.

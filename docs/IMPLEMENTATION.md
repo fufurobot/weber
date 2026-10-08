@@ -145,12 +145,14 @@ assets all exist and that the shell references them.
   and a shell would bypass both the binary allow-list and the argv-as-data
   guarantee the rest of the system depends on. That is a separate design
   problem, not an oversight.
-- **`compose/Dockerfile.web` and `compose/Dockerfile.core` have never been
-  built.** No container runtime was available in the environment where this was
-  written (the Podman VM is not running), so the images are validated by
-  inspection and config checks only. The build inputs, stages, healthchecks and
-  the `build:web` contract are all pinned by tests, but "tests pass" is not the
-  same claim as "the image builds".
+- **The images are built and smoke-tested in CI, but the images have not been
+  built on this machine.** No container runtime is available here: `podman
+  machine start` reports *"virtualization is not enabled on this machine"*, a
+  host-level setting, and even querying the Windows feature requires elevation.
+  The build therefore runs on GitHub runners, which do have a runtime, and each
+  image is *run* and probed rather than merely built. That is a real
+  verification, but it is verification elsewhere, and it says nothing about
+  whether the images behave on a different architecture or kernel.
 - **The SPA has not been opened in a real browser.** Its output was served and
   fetched through a simulation of the edge, which proves the routes, asset
   naming and MIME types resolve — not that the UI renders correctly.
