@@ -13,7 +13,7 @@ owns, and why the boundaries sit where they do.
                     └───────────────────┬─────────────────────┘
                                         │  weber-net (internal bridge)
                     ┌───────────────────▼─────────────────────┐
-                    │  core  (oven/bun:1.3-alpine)            │
+                    │  core  (oven/bun:1.4-alpine)            │
                     │  · /api/health, /api/fs/*, /api/tools/* │
                     │  · /ws terminal + notebook events       │
                     │  · path sandbox · exec allow-list       │

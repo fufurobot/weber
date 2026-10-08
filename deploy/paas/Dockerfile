@@ -15,7 +15,7 @@
 # ---------------------------------------------------------------------------
 # build: full toolchain, so the SPA bundles and the types resolve.
 # ---------------------------------------------------------------------------
-FROM oven/bun:1.3-alpine AS build
+FROM oven/bun:1.4-alpine AS build
 WORKDIR /app
 
 COPY package.json bun.lock* ./
@@ -33,7 +33,7 @@ RUN bun run build:web
 # ---------------------------------------------------------------------------
 # runtime: production dependencies only, non-root, one port.
 # ---------------------------------------------------------------------------
-FROM oven/bun:1.3-alpine AS runtime
+FROM oven/bun:1.4-alpine AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production \

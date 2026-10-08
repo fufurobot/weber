@@ -1,5 +1,5 @@
 # Weber frontend — static SPA served by nginx, which also fronts the core API.
-FROM oven/bun:1.3-alpine AS build
+FROM oven/bun:1.4-alpine AS build
 WORKDIR /app
 
 COPY package.json bun.lock* ./

@@ -270,6 +270,89 @@ jobs:
             -v "$PWD/compose/nginx.conf:/etc/nginx/conf.d/weber.conf:ro" \
             nginx:1.27-alpine nginx -t
 
+      # The unprivileged main config must be valid too — it is a separate file
+      # and its pid and temp paths are what make non-root nginx work at all.
+      - name: Validate the unprivileged nginx config
+        run: |
+          docker run --rm \
+            --add-host core:127.0.0.1 \
+            -v "$PWD/compose/nginx-unprivileged.conf:/etc/nginx/nginx.conf:ro" \
+            -v "$PWD/compose/nginx.conf:/etc/nginx/conf.d/weber.conf:ro" \
+            nginx:1.27-alpine nginx -t
+
+  compose-up:
+    name: Compose stack runs end to end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build both images
+        run: |
+          docker build -f compose/Dockerfile.core -t weber-core:ci .
+          docker build -f compose/Dockerfile.web -t weber-web:ci .
+
+      # A compose file that validates is not a compose file that works. This
+      # runs the real topology: nginx as the only published surface, the core
+      # behind it, traffic reaching the core only through the edge.
+      - name: Start the stack
+        run: |
+          docker network create weber-ci
+          docker run -d --name core --network weber-ci \
+            -e CORE_HOST=0.0.0.0 -e CORE_PORT=8787 \
+            -e WORKSPACE_ROOT=/workspaces -e WEBER_SEED=1 \
+            weber-core:ci
+          docker run -d --name web --network weber-ci -p 13000:8080 weber-web:ci
+
+      - name: Wait for the edge to serve
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 40); do
+            curl -sf -m 5 http://127.0.0.1:13000/healthz >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -sf -m 10 http://127.0.0.1:13000/healthz >/dev/null \
+            || { echo "FAIL: edge never became healthy"; docker logs web; exit 1; }
+          echo "ok: edge is healthy"
+
+      - name: The SPA is served through the edge
+        run: |
+          set -euo pipefail
+          CT=$(curl -s -o /dev/null -w '%{content_type}' -m 10 http://127.0.0.1:13000/)
+          case "$CT" in text/html*) echo "ok: SPA served as $CT" ;;
+            *) echo "FAIL: got $CT"; docker logs web; exit 1 ;; esac
+
+      - name: The API reaches the core only through the edge
+        run: |
+          set -euo pipefail
+          # Proxied: /api on the edge must reach the core.
+          curl -sf -m 10 http://127.0.0.1:13000/api/health | grep -q '"status":"ok"' \
+            || { echo "FAIL: edge did not proxy /api to the core"; docker logs web; docker logs core; exit 1; }
+          echo "ok: /api proxied through the edge"
+
+          # And the core must NOT be published on the host, which is the whole
+          # point of the topology.
+          if curl -sf -m 3 http://127.0.0.1:8787/api/health >/dev/null 2>&1; then
+            echo "FAIL: the core is reachable directly on the host"; exit 1
+          fi
+          echo "ok: core is not published directly"
+
+      - name: File API works through the edge
+        run: |
+          set -euo pipefail
+          curl -s -m 10 -X PUT 'http://127.0.0.1:13000/api/fs/file?path=ci.txt' \
+            -H 'content-type: application/json' \
+            -d '{"contents":"through the edge"}' | grep -q '"ok":true' \
+            || { echo "FAIL: write failed"; docker logs core; exit 1; }
+          curl -s -m 10 'http://127.0.0.1:13000/api/fs/file?path=ci.txt' \
+            | grep -q 'through the edge' \
+            || { echo "FAIL: read-back mismatch"; exit 1; }
+          echo "ok: write and read round-trip through the edge"
+
+      - name: Container logs on failure
+        if: failure()
+        run: |
+          for c in web core; do echo "=== $c ==="; docker logs "$c" 2>&1 | tail -40 || true; done
+
   chart:
     name: Helm chart renders and refuses unsafe config
     runs-on: ubuntu-latest

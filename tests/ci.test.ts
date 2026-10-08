@@ -54,9 +54,16 @@ describe("workflow structure", () => {
 
   test("declares every job the project needs", () => {
     const jobs = jobNames();
-    for (const expected of ["test", "e2e", "compose", "chart", "combined"]) {
+    for (const expected of ["test", "e2e", "compose", "compose-up", "chart", "combined", "build-images"]) {
       expect(jobs).toContain(expected);
     }
+  });
+
+  test("the compose job runs the stack, not just its configuration", () => {
+    // A compose file that validates is not a compose file that works.
+    expect(src).toMatch(/Compose stack runs end to end/);
+    expect(src).toMatch(/core is not published directly/);
+    expect(src).toMatch(/write and read round-trip through the edge/);
   });
 
   test("contains no tabs, which YAML forbids", () => {
