@@ -23,19 +23,33 @@ Everything below has tests that run in the default `bun test` pass.
 | Web build + SPA shell | `web/`, `scripts/build-web.ts` | 15 |
 | Starter workspace seeding | `src/core/seed.ts` | 12 |
 | Issue filing tooling | `scripts/file-issues.ts` | 7 |
-| Config validation | `scripts/validate-config.ts` | 49 checks |
+| Helm chart and hardening | `chart/` | 55 |
+| Pyodide kernel (browser) | `web/kernel/python.ts` | 20 |
+| TypeScript kernel (browser) | `web/kernel/typescript.ts` | 19 |
+| Browser notebook | `web/notebook-browser.ts` | 14 |
+| Python backend selection | `src/core/python.ts` | 10 |
+| Per-user limits | `src/core/limits.ts` | 26 |
+| Workspace tenancy | `src/core/tenancy.ts` | 15 |
+| GitHub OAuth | `src/server/auth.ts` | 16 |
+| Config validation | `scripts/validate-config.ts` | 51 checks |
 
 ```
-bun test          164 pass, 7 skip, 0 fail
+bun test          377 pass, 7 skip, 0 fail
 bun run test:e2e   19 pass, 0 fail
+bun run typecheck  clean (blocking in CI)
 ```
 
 Verified against a **running server**, not only in unit tests: `/api/health`,
 file write and read, notebook reactivity (`b = a * 21` → `42`), a policy
 refusal, a full websocket session (ready → refusal without a start frame →
 streaming → exit), the built SPA served through an edge simulation that
-mirrors the nginx config (static shell, hashed assets, proxied `/api`), and
-first-boot seeding including the no-clobber path on restart.
+mirrors the nginx config, and first-boot seeding including the no-clobber path
+on restart.
+
+The Helm chart is verified by **real `helm template` rendering in CI**, not by
+reading the templates: the chart job lints, renders the defaults, proves that
+an unauthenticated public install is *refused*, proves an empty allow-list is
+refused, and proves a fully configured install still renders.
 
 ## Known limitations worth stating plainly
 
@@ -66,8 +80,6 @@ These are named in the README and do not exist in code:
 
 - **Monaco editor and LSP integration** (clangd, rust-analyzer, tsserver). The
   editor is currently a plain textarea, and there is no language intelligence.
-- **Pyodide** Python execution in the browser. Python cells therefore run
-  against the server's CPython, not an in-browser WASM runtime.
 - **VS Code extension host.**
 - **AI completion.**
 - **Collaborative editing**, offline mode, mobile layout.
@@ -150,8 +162,14 @@ In dependency order:
 2. ~~HTTP file/tool routes~~ — **done**.
 3. ~~WebSocket terminal~~ — **done** (as a policy-checked command channel).
 4. ~~Minimal SPA + `scripts/build-web.ts`~~ — **done**.
-5. **Build the images for real** on a machine with a container runtime, and run
-   `podman-compose up` end to end. This is the highest-value next step because
-   it is the one claim still resting on inspection rather than execution.
-6. Monaco + LSP proxy, replacing the textarea editor.
-7. Pyodide for in-browser Python.
+5. ~~Helm chart, tested against real `helm template` in CI~~ — **done**.
+6. ~~Pyodide for in-browser Python, with a browser notebook~~ — **done**.
+7. **Build the container images for real** on a machine with a runtime, and run
+   `podman-compose up` end to end. Still the highest-value remaining step: it is
+   the one claim resting on inspection rather than execution.
+8. **v86 for Rust and C++ on Pages-only.** The only route to those toolchains
+   with no server; see `docs/RFC-HOSTED-SESSIONS.md` Option D.
+9. Monaco + LSP proxy, replacing the textarea editor.
+10. **Kubernetes spawner** (a pod per user, the ml-hub model). This is what
+    would make multi-user hosting genuinely isolated; see
+    `docs/ML-HUB-ANALYSIS.md`.
