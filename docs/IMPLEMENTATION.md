@@ -32,10 +32,11 @@ Everything below has tests that run in the default `bun test` pass.
 | Workspace tenancy | `src/core/tenancy.ts` | 15 |
 | GitHub OAuth | `src/server/auth.ts` | 16 |
 | Single-image PaaS deployment | `deploy/paas/` | 23 |
+| Image build + smoke tests | `compose/`, `deploy/paas/` | 17 |
 | Config validation | `scripts/validate-config.ts` | 51 checks |
 
 ```
-bun test          423 pass, 7 skip, 0 fail
+bun test          444 pass, 7 skip, 0 fail
 bun run test:e2e   19 pass, 0 fail
 bun run typecheck  clean (blocking in CI)
 ```
@@ -51,6 +52,21 @@ The Helm chart is verified by **real `helm template` rendering in CI**, not by
 reading the templates: the chart job lints, renders the defaults, proves that
 an unauthenticated public install is *refused*, proves an empty allow-list is
 refused, and proves a fully configured install still renders.
+
+The container images are verified by **building and running them** in CI. The
+first time that job ran, it failed three times in a row, each time on something
+invisible to inspection:
+
+1. `Unknown lockfile version` — the lockfile was written by Bun 1.4.2 while
+   every image was pinned to Bun 1.3
+2. the core image ran `typecheck` without copying `web/`, producing dozens of
+   false "cannot find module" errors for files a backend image never has
+3. `[emerg] host not found in upstream "core:8787"` — nginx resolves upstreams
+   at config time, so naming the test container `smoke-core` stopped it
+   starting at all
+
+None of these was findable by reading. That is the whole argument for building
+the artifact.
 
 ## Known limitations worth stating plainly
 
@@ -145,14 +161,13 @@ assets all exist and that the shell references them.
   and a shell would bypass both the binary allow-list and the argv-as-data
   guarantee the rest of the system depends on. That is a separate design
   problem, not an oversight.
-- **The images are built and smoke-tested in CI, but the images have not been
-  built on this machine.** No container runtime is available here: `podman
-  machine start` reports *"virtualization is not enabled on this machine"*, a
-  host-level setting, and even querying the Windows feature requires elevation.
-  The build therefore runs on GitHub runners, which do have a runtime, and each
-  image is *run* and probed rather than merely built. That is a real
-  verification, but it is verification elsewhere, and it says nothing about
-  whether the images behave on a different architecture or kernel.
+- **The images are built and smoke-tested in CI; they have never been built on
+  this machine.** No container runtime is available locally: `podman machine
+  start` reports *"virtualization is not enabled on this machine"*, a host-level
+  setting, and querying the Windows feature needs elevation. The build runs on
+  GitHub runners, which do have a runtime, and every image is *run and probed*
+  rather than merely built. That is real verification, but it is verification
+  elsewhere: it says nothing about a different architecture or kernel.
 - **The SPA has not been opened in a real browser.** Its output was served and
   fetched through a simulation of the edge, which proves the routes, asset
   naming and MIME types resolve — not that the UI renders correctly.
