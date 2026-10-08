@@ -33,12 +33,14 @@ Everything below has tests that run in the default `bun test` pass.
 | GitHub OAuth | `src/server/auth.ts` | 16 |
 | Single-image PaaS deployment | `deploy/paas/` | 23 |
 | Image build + smoke tests | `compose/`, `deploy/paas/` | 17 |
+| Browser smoke test | `scripts/browser-smoke.ts` | 9 |
 | Config validation | `scripts/validate-config.ts` | 51 checks |
 
 ```
-bun test          444 pass, 7 skip, 0 fail
+bun test          455 pass, 7 skip, 0 fail
 bun run test:e2e   19 pass, 0 fail
 bun run typecheck  clean (blocking in CI)
+bun run browser:smoke  12/12 checks (CI only; needs a real browser)
 ```
 
 Verified against a **running server**, not only in unit tests: `/api/health`,
@@ -168,9 +170,13 @@ assets all exist and that the shell references them.
   GitHub runners, which do have a runtime, and every image is *run and probed*
   rather than merely built. That is real verification, but it is verification
   elsewhere: it says nothing about a different architecture or kernel.
-- **The SPA has not been opened in a real browser.** Its output was served and
-  fetched through a simulation of the edge, which proves the routes, asset
-  naming and MIME types resolve — not that the UI renders correctly.
+- **The SPA renders, verified in a real browser in CI.** `bun run browser:smoke`
+  starts the real server, drives Chromium, and asserts on the rendered DOM: the
+  app replaces the "Loading Weber…" placeholder, `#meta` shows it reached the
+  backend, the seeded file tree has rows, Script Mode mounts a notebook, and
+  there are no uncaught page errors or console errors. It cannot run locally
+  because Chromium's mojo IPC needs named pipes, which this sandbox blocks — the
+  same boundary that stops `podman-compose`.
 - **The frontend is dependency-free by design.** Monaco and a real component
   library are deferred rather than abandoned; the constraint was building
   inside a Bun-only image.
