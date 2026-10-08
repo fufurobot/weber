@@ -52,6 +52,86 @@ jobs:
           grep -q 'assets/.*\.css' dist/web/index.html || { echo "css not rewritten"; exit 1; }
           echo "frontend build output OK"
 
+  # Runs the server the way a PaaS does: one process, no nginx, the platform's
+  # PORT. Reading the Dockerfile proves nothing about whether the deployment
+  # works, and the failure mode here is a request timeout with no log entry.
+  combined:
+    name: Combined-mode deployment works
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Build the SPA
+        run: bun run build:web
+
+      - name: Start with the platform PORT and probe it
+        run: |
+          set -euo pipefail
+          PORT=18080 CORE_HOST=0.0.0.0 \
+            WEBER_WEB_ROOT="$PWD/dist/web" \
+            WORKSPACE_ROOT="$(mktemp -d)" \
+            WEBER_SEED=1 \
+            bun run src/server/main.ts > /tmp/combined.log 2>&1 &
+          SERVER=$!
+          trap 'kill $SERVER 2>/dev/null || true' EXIT
+          sleep 6
+
+          B=http://127.0.0.1:18080
+          fail() { echo "FAIL: $1"; cat /tmp/combined.log; exit 1; }
+
+          curl -sf -m 10 "$B/api/health" >/dev/null || fail "health unreachable on PORT"
+          echo "ok: PORT honoured"
+
+          CT=$(curl -s -o /dev/null -w '%{content_type}' -m 10 "$B/")
+          case "$CT" in text/html*) echo "ok: core serves the SPA" ;;
+            *) fail "GET / returned $CT, expected HTML" ;; esac
+
+          ASSET=$(curl -s -m 10 "$B/" | grep -o 'assets/[^"]*\.js' | head -1)
+          curl -sf -m 10 "$B/$ASSET" >/dev/null || fail "asset $ASSET not served"
+          echo "ok: hashed asset served"
+
+          curl -s -m 10 "$B/api/fs/list?path=" | grep -q README.md \
+            || fail "workspace was not seeded"
+          echo "ok: workspace seeded"
+
+      - name: Auth mode refuses execution but keeps health and the shell public
+        run: |
+          set -euo pipefail
+          PORT=18081 CORE_HOST=0.0.0.0 \
+            WEBER_WEB_ROOT="$PWD/dist/web" \
+            WORKSPACE_ROOT="$(mktemp -d)" \
+            GITHUB_CLIENT_ID=Iv1.test \
+            WEBER_ALLOWED_LOGINS=someone \
+            WEBER_SESSION_SECRET=a-sufficiently-long-session-secret \
+            bun run src/server/main.ts > /tmp/auth.log 2>&1 &
+          SERVER=$!
+          trap 'kill $SERVER 2>/dev/null || true' EXIT
+          sleep 6
+
+          B=http://127.0.0.1:18081
+          fail() { echo "FAIL: $1"; cat /tmp/auth.log; exit 1; }
+
+          code() { curl -s -o /dev/null -w '%{http_code}' -m 10 "$@"; }
+
+          [ "$(code "$B/api/fs/list?path=")" = "401" ] || fail "file access not gated"
+          echo "ok: file access gated"
+          [ "$(code -X POST -H 'content-type: application/json' -d '{}' "$B/api/tools/run")" = "401" ] \
+            || fail "command execution not gated"
+          echo "ok: command execution gated"
+
+          # These two must stay open or the release fails its healthcheck, or
+          # the login page cannot load.
+          [ "$(code "$B/api/health")" = "200" ] || fail "health must stay public"
+          [ "$(code "$B/")" = "200" ] || fail "the SPA shell must stay public"
+          echo "ok: health and the shell stay public"
+
   e2e:
     name: Spawn-dependent tests
     runs-on: ubuntu-latest

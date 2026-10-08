@@ -54,7 +54,7 @@ describe("workflow structure", () => {
 
   test("declares every job the project needs", () => {
     const jobs = jobNames();
-    for (const expected of ["test", "e2e", "compose", "chart"]) {
+    for (const expected of ["test", "e2e", "compose", "chart", "combined"]) {
       expect(jobs).toContain(expected);
     }
   });
@@ -67,11 +67,25 @@ describe("workflow structure", () => {
     const blocks = src.split(/\n {2}(?=[A-Za-z0-9_-]+:\s*$)/m).slice(1);
     const jobsBlock = src.slice(src.indexOf("\njobs:"));
     const jobChunks = jobsBlock.split(/\n {2}(?=[A-Za-z0-9_-]+:\s*$)/m).slice(1);
-    expect(jobChunks.length).toBeGreaterThanOrEqual(4);
+    expect(jobChunks.length).toBeGreaterThanOrEqual(5);
     for (const chunk of jobChunks) {
       expect(chunk).toMatch(/runs-on:/);
     }
     expect(blocks.length).toBeGreaterThan(0);
+  });
+
+  test("CI runs the deployment the way a PaaS does", () => {
+    // One process, no edge, the platform's PORT. Reading a Dockerfile proves
+    // nothing about whether the deployment works.
+    expect(src).toMatch(/PORT=18080/);
+    expect(src).toMatch(/core serves the SPA/);
+  });
+
+  test("CI asserts auth gates execution but not health or the shell", () => {
+    // Health must stay public or the platform healthcheck fails the release;
+    // the shell must stay public or the login page cannot load.
+    expect(src).toMatch(/command execution gated/);
+    expect(src).toMatch(/health and the shell stay public/);
   });
 });
 
