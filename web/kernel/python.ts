@@ -117,7 +117,8 @@ export class PythonKernel {
     await previous;
 
     this.status = "running";
-    this.current = { stdout: [], stderr: [] };
+    const sink = { stdout: [] as string[], stderr: [] as string[] };
+    this.current = sink;
 
     try {
       if (this.options.autoLoadPackages && runtime.loadPackagesFromImports) {
@@ -125,19 +126,22 @@ export class PythonKernel {
       }
       const result = await runtime.runPythonAsync(code);
       return {
-        stdout: this.current.stdout.join(""),
-        stderr: this.current.stderr.join(""),
+        stdout: sink.stdout.join(""),
+        stderr: sink.stderr.join(""),
         result: normalise(result),
       };
     } catch (err) {
+      // A *cell* error is a normal result, not a kernel failure: the kernel is
+      // still usable afterwards, which is why the status returns to "ready"
+      // rather than becoming "error".
       return {
-        stdout: this.current.stdout.join(""),
-        stderr: this.current.stderr.join(""),
+        stdout: sink.stdout.join(""),
+        stderr: sink.stderr.join(""),
         error: err instanceof Error ? err.message : String(err),
       };
     } finally {
       this.current = null;
-      this.status = this.status === "error" ? "error" : "ready";
+      this.status = "ready";
       release();
     }
   }

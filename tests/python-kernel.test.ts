@@ -7,14 +7,24 @@
  * failed load.
  */
 import { describe, expect, test, beforeEach } from "bun:test";
-import { PythonKernel, normalise, type PyodideLike } from "../web/kernel/python";
+import { PythonKernel, normalise, type KernelOptions, type PyodideLike } from "../web/kernel/python";
 
 /** A fake Pyodide that records calls and lets tests script failures. */
-function fakePyodide(overrides: Partial<PyodideLike> = {}) {
-  const state = {
-    stdout: (text: string) => {},
-    stderr: (text: string) => {},
-    calls: [] as string[],
+interface FakeState {
+  stdout: (text: string) => void;
+  stderr: (text: string) => void;
+  calls: string[];
+  failNext: boolean;
+}
+
+function fakePyodide(overrides: Partial<PyodideLike> = {}): {
+  runtime: PyodideLike;
+  state: FakeState;
+} {
+  const state: FakeState = {
+    stdout: () => {},
+    stderr: () => {},
+    calls: [],
     failNext: false,
   };
 
@@ -49,7 +59,7 @@ beforeEach(() => {
   fake = fakePyodide();
 });
 
-function kernel(options: Partial<Parameters<typeof PythonKernel.prototype.constructor>[0]> = {}) {
+function kernel(options: Partial<KernelOptions> = {}) {
   return new PythonKernel({
     load: async () => {
       loadCount++;
