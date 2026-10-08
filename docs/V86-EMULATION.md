@@ -1,7 +1,20 @@
 # v86: Rust and C++ with no server
 
-How workstream 4 works, why it is the only route to those toolchains on a
-static host, and what it costs.
+> **Status: DEFERRED.** The decision logic, profile metadata and image
+> resolution are implemented and tested. **The disk image does not exist and no
+> emulator has ever been run.** Nothing in the UI imports this code yet, so the
+> feature is inert rather than half-working — which is the honest state to
+> leave it in.
+>
+> Resuming this needs a Linux host. Buildroot requires a case-sensitive POSIX
+> filesystem and builds a full host toolchain; it explicitly does not support
+> MSYS2, and the development environment has neither a container runtime nor a
+> WSL distro (virtualization is disabled at the host level). GitHub runners can
+> do it, but a Buildroot toolchain build is measured in hours, which is why it
+> would be a manually triggered job rather than part of every push.
+
+How workstream 4 is intended to work, why it is the only route to those
+toolchains on a static host, and what it costs.
 
 Constraints below come from the [v86 Readme](https://github.com/copy/v86),
 read rather than recalled.
@@ -74,26 +87,27 @@ committing to a 320 MB download. That is a real usability benefit, not filler.
 
 ## Building the image
 
-v86's supported path for a small bootable system is **Buildroot**; Alpine and
-32-bit Arch also work. A full distribution is several hundred MB before a
-toolchain is added.
+**Not done.** No script is committed, deliberately: an earlier draft referenced
+a Buildroot defconfig and board directory that were never written, so it could
+not run. A build script that cannot build is worse than none, because it looks
+like the work is further along than it is.
 
-Sketch:
+What it would take, in order:
 
-```bash
-# Buildroot with a 32-bit x86 defconfig, then add to the rootfs:
-#   rust (i686 target)   — check tier support before assuming
-#   gcc or clang         — 32-bit host toolchain
-#   make, pkg-config, musl or glibc
-make -C buildroot weber_i386_defconfig
-make -C buildroot
-# Emit a disk image v86 can boot, plus seabios.bin and vgabios.bin.
-```
+1. A Buildroot defconfig for a 32-bit x86 target, plus a board directory with
+   an overlay adding the toolchain packages.
+2. A build script that fetches Buildroot, applies the defconfig, and collects
+   `rootfs.ext2` plus the BIOS blobs v86 needs.
+3. A GitHub Actions job to run it. Expect hours, so it should be manually
+   triggered or on a schedule, not on every push.
+4. Publishing the result as a release asset, which is what
+   `web/v86/images.ts` already expects — it resolves a pinned release URL and
+   supports a `baseUrl` override so a self-hosted copy can serve its own image.
 
-**Not yet done, and not verified.** The manifest, selection logic and caveats
-are implemented and tested; the image itself is not built, and no emulator has
-been run. That distinction matters and is repeated in
-`docs/IMPLEMENTATION.md`.
+The open question worth settling before writing any of it: **is a 10–100×
+slower toolchain in a browser tab actually useful**, or is it a demonstration?
+If the answer is demonstration, the effort may not be worth it, and the honest
+alternative is the Helm chart or the compose path.
 
 ---
 

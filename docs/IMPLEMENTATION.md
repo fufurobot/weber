@@ -34,10 +34,11 @@ Everything below has tests that run in the default `bun test` pass.
 | Single-image PaaS deployment | `deploy/paas/` | 23 |
 | Image build + smoke tests | `compose/`, `deploy/paas/` | 17 |
 | Browser smoke test | `scripts/browser-smoke.ts` | 9 |
+| v86 profiles + image resolution (deferred) | `web/v86/` | 22 |
 | Config validation | `scripts/validate-config.ts` | 51 checks |
 
 ```
-bun test          455 pass, 7 skip, 0 fail
+bun test          469 pass, 7 skip, 0 fail
 bun run test:e2e   19 pass, 0 fail
 bun run typecheck  clean (blocking in CI)
 bun run browser:smoke  12/12 checks (CI only; needs a real browser)
@@ -219,11 +220,15 @@ In dependency order:
 6. ~~Pyodide for in-browser Python, with a browser notebook~~ — **done**.
 7. ~~Single-image PaaS deployment with `PORT` support, verified by running it in
    CI~~ — **done**.
-8. **Build the container images for real** on a machine with a runtime, and run
-   `podman-compose up` end to end. Still the highest-value remaining step: it is
-   the one claim resting on inspection rather than execution.
-9. **v86 for Rust and C++ on Pages-only.** The profiles and selection logic
-   exist; the image does not, and no emulator has been run.
+8. ~~Build the container images for real~~ — **done**, in CI, with each image
+   run and probed rather than merely built.
+9. **v86 for Rust and C++ on Pages-only — DEFERRED.** The decision logic,
+   profile metadata and release-asset resolution are implemented and tested
+   (22 tests); the disk image does not exist and no emulator has been run.
+   Nothing imports it yet, so the feature is inert rather than half-working.
+   It needs a Linux host and a multi-hour Buildroot build; see
+   `docs/V86-EMULATION.md`, which also asks whether the result would be useful
+   or merely a demonstration.
 10. Monaco + LSP proxy, replacing the textarea editor.
 11. **Kubernetes spawner** (a pod per user, the ml-hub model). This is what
     would make multi-user hosting genuinely isolated; see
