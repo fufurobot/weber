@@ -31,10 +31,11 @@ Everything below has tests that run in the default `bun test` pass.
 | Per-user limits | `src/core/limits.ts` | 26 |
 | Workspace tenancy | `src/core/tenancy.ts` | 15 |
 | GitHub OAuth | `src/server/auth.ts` | 16 |
+| Single-image PaaS deployment | `deploy/paas/` | 23 |
 | Config validation | `scripts/validate-config.ts` | 51 checks |
 
 ```
-bun test          377 pass, 7 skip, 0 fail
+bun test          423 pass, 7 skip, 0 fail
 bun run test:e2e   19 pass, 0 fail
 bun run typecheck  clean (blocking in CI)
 ```
@@ -86,19 +87,48 @@ These are named in the README and do not exist in code:
 
 ## Deployment
 
-Two targets, with different capabilities — worth keeping distinct:
+Three targets, with genuinely different capabilities — worth keeping distinct:
 
 | Target | What runs | Limitation |
 |---|---|---|
-| `podman-compose up` | the real product | needs a container runtime |
-| GitHub Pages | the interface only | no backend; fixtures |
+| `podman-compose up` | the real product, nginx edge + core | needs a container runtime |
+| `deploy/paas/` (single image) | the real product, one process | ephemeral disk; no edge |
+| GitHub Pages | the interface plus **real** Pyodide | no Rust or C++ yet |
 
-**GitHub Pages is a demo, not a deployment of the product.** File operations,
-the toolchain runner and the notebook engine all live in the core service, and
-Pages serves static files. So `scripts/build-pages.ts` aliases the API client
-to `web/mock-api.ts` at bundle time and the shell shows a banner saying so. The
-alias is done in the bundler rather than by forking the app, so the demo
-exercises the same components the real build does.
+### Single-image (PaaS)
+
+A PaaS gives one container and one port, so the nginx edge disappears and the
+core serves the SPA itself. That combination is verified in CI by **running
+it**, not by reading the Dockerfile:
+
+- `PORT` is honoured rather than the `CORE_PORT` default. This was a real bug:
+  the server read only `CORE_PORT`, so a Heroku deployment would have bound the
+  wrong port and the router would never have reached it — a request timeout
+  with nothing in the log to explain it.
+- the core serves the SPA as `text/html`, and hashed assets resolve
+- with auth configured, file access and command execution both return **401**,
+  while `/api/health` and `/` stay **public**
+
+That last split decides both safety and whether the release even succeeds:
+health must stay open or the platform healthcheck fails the deploy, and the
+shell must stay open or the login page cannot load.
+
+**Ephemeral storage is a real limitation, not a footnote.** Heroku wipes the
+filesystem on every restart and deploy, so `WORKSPACE_ROOT` does not persist.
+For disposable sessions that is fine; for real work it is not, and the honest
+answer remains the compose or Helm paths.
+
+**GitHub Pages is a demo — except for the notebook.** File operations and the
+toolchain runner live in the core service and Pages serves static files, so
+`scripts/build-pages.ts` aliases the API client to `web/mock-api.ts` at bundle
+time and the shell shows a banner saying so. The alias is done in the bundler
+rather than by forking the app, so the demo exercises the same components the
+real build does.
+
+**Script Mode on Pages is genuinely real.** Python runs in the page via Pyodide
+and TypeScript runs in a local kernel — neither touches the mock. That is why
+the notebook carries its own banner, distinguishing it from the fixture-backed
+file tree above it.
 
 **One manual step is required.** The workflow cannot enable Pages for itself —
 its token returns `Resource not accessible by integration` when it tries. A
@@ -164,12 +194,14 @@ In dependency order:
 4. ~~Minimal SPA + `scripts/build-web.ts`~~ — **done**.
 5. ~~Helm chart, tested against real `helm template` in CI~~ — **done**.
 6. ~~Pyodide for in-browser Python, with a browser notebook~~ — **done**.
-7. **Build the container images for real** on a machine with a runtime, and run
+7. ~~Single-image PaaS deployment with `PORT` support, verified by running it in
+   CI~~ — **done**.
+8. **Build the container images for real** on a machine with a runtime, and run
    `podman-compose up` end to end. Still the highest-value remaining step: it is
    the one claim resting on inspection rather than execution.
-8. **v86 for Rust and C++ on Pages-only.** The only route to those toolchains
-   with no server; see `docs/RFC-HOSTED-SESSIONS.md` Option D.
-9. Monaco + LSP proxy, replacing the textarea editor.
-10. **Kubernetes spawner** (a pod per user, the ml-hub model). This is what
+9. **v86 for Rust and C++ on Pages-only.** The profiles and selection logic
+   exist; the image does not, and no emulator has been run.
+10. Monaco + LSP proxy, replacing the textarea editor.
+11. **Kubernetes spawner** (a pod per user, the ml-hub model). This is what
     would make multi-user hosting genuinely isolated; see
     `docs/ML-HUB-ANALYSIS.md`.
