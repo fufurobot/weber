@@ -25,9 +25,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile || bun install
 
+      # Blocking, not advisory. It was `continue-on-error` while the types were
+      # still settling, and in that time it caught a real unreachable branch in
+      # the Python kernel that every test passed over. A check that cannot fail
+      # the build is not a check.
       - name: Typecheck
         run: bun run typecheck
-        continue-on-error: true
 
       - name: Unit and policy tests
         run: bun test

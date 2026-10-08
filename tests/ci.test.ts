@@ -76,6 +76,16 @@ describe("workflow structure", () => {
 });
 
 describe("safety assertions", () => {
+  test("typecheck blocks the build rather than advising", () => {
+    // It was advisory once, and in that window it caught a real unreachable
+    // branch that tests passed over. A check that cannot fail is not a check.
+    expect(src).toMatch(/name: Typecheck/);
+    const typecheckBlock = src.slice(src.indexOf("name: Typecheck"));
+    const nextStep = typecheckBlock.indexOf("- name:", 10);
+    const block = typecheckBlock.slice(0, nextStep > 0 ? nextStep : 400);
+    expect(block).not.toMatch(/continue-on-error/);
+  });
+
   test("CI proves the chart refuses an unauthenticated public deployment", () => {
     // This is the regression guard for the chart's most important property.
     expect(src).toMatch(/Exposing without auth must be refused/);
