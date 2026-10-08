@@ -81,6 +81,30 @@ describe("workflow structure", () => {
     expect(blocks.length).toBeGreaterThan(0);
   });
 
+  test("CI gives the edge a resolvable core upstream", () => {
+    // nginx resolves upstream hostnames at CONFIG time, so it refuses to start
+    // at all when `core` does not resolve:
+    //
+    //   [emerg] host not found in upstream "core:8787"
+    //
+    // Every smoke test that starts the edge must therefore provide either a
+    // container named `core` or a network alias for it.
+    const nginxUpstream = readFileSync(
+      join(import.meta.dir, "..", "compose", "nginx.conf"),
+      "utf8",
+    ).match(/server\s+([A-Za-z0-9_.-]+):\d+/)?.[1];
+    expect(nginxUpstream).toBe("core");
+
+    // Each `docker run ... weber-web` must be preceded by something providing
+    // that name.
+    const webRuns = src.split("\n").filter((l) => /docker run[^\n]*weber-web/.test(l));
+    expect(webRuns.length).toBeGreaterThan(0);
+    for (const _ of webRuns) {
+      const provides = src.includes(`--name ${nginxUpstream} `) || src.includes("--network-alias core");
+      expect(provides).toBe(true);
+    }
+  });
+
   test("CI runs the deployment the way a PaaS does", () => {
     // One process, no edge, the platform's PORT. Reading a Dockerfile proves
     // nothing about whether the deployment works.

@@ -182,11 +182,11 @@ jobs:
           set -euo pipefail
           # nginx resolves upstream hostnames at CONFIG time, so it refuses to
           # start at all if `core` does not resolve -- the same behaviour that
-          # broke the nginx -t check earlier. The edge is therefore tested
-          # against a real core on a shared network, which is also how it runs
-          # in production.
+          # broke the nginx -t check earlier. The container is therefore given
+          # the alias `core`, matching the upstream name in nginx.conf and the
+          # service name compose would assign.
           docker network create smoke
-          docker run -d --name smoke-core --network smoke \
+          docker run -d --name smoke-core --network smoke --network-alias core \
             -e CORE_HOST=0.0.0.0 -e CORE_PORT=8787 \
             -e WORKSPACE_ROOT=/workspaces -e WEBER_SEED=1 \
             weber-core:ci
