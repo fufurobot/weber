@@ -44,11 +44,18 @@ async function main(): Promise<void> {
       // Let the app know it is running against fixtures.
       __WEBER_DEMO__: "true",
       __WEBER_BASE__: JSON.stringify(BASE_PATH),
+      // Script Mode uses the browser kernels here: Pyodide runs locally, so
+      // Python is genuinely real on Pages, not a mock.
+      __WEBER_BROWSER_KERNELS__: "true",
     },
     plugins: [
       {
         // Redirect the API client to the mock without touching application code,
         // so the demo exercises the real components rather than a fork of them.
+        //
+        // Only `./api` is redirected. The notebook kernels are NOT mocked:
+        // Pyodide and the TypeScript kernel run for real in the browser, which
+        // is the whole point of the Pages deployment.
         name: "mock-api",
         setup(build) {
           build.onResolve({ filter: /^\.\/api$/ }, (args) => {

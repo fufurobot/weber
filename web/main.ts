@@ -11,6 +11,17 @@
  */
 import { api, ApiError, type DirEntry, type Toolchain } from "./api";
 import { NotebookView } from "./notebook";
+import { BrowserNotebook } from "./notebook-browser";
+
+/**
+ * Whether Script Mode should use local kernels instead of the server engine.
+ *
+ * The Pages build defines this to `true`. Reading it through a guard keeps the
+ * bundle valid when the symbol is absent, which it is in the compose build.
+ */
+declare const __WEBER_BROWSER_KERNELS__: boolean | undefined;
+const BROWSER_KERNELS: boolean =
+  typeof __WEBER_BROWSER_KERNELS__ !== "undefined" && __WEBER_BROWSER_KERNELS__ === true;
 
 type Mode = "project" | "script";
 
@@ -293,12 +304,37 @@ async function refreshTools(host: HTMLElement): Promise<void> {
 
 /* ---------------------------------------------------------- script mode */
 
+/**
+ * Script Mode has two backends, and which one is correct depends on whether a
+ * server exists:
+ *
+ *   server   the reactive engine, which derives a dependency graph
+ *   browser  local kernels (Pyodide + a linear TypeScript kernel)
+ *
+ * On GitHub Pages there is no server at all, so the browser kernels are the
+ * only option — and Python is then *genuinely real*, not a fixture, because
+ * Pyodide runs in the page. That is worth stating in the UI so a user does not
+ * assume the notebook is part of the mock.
+ */
 function renderScript(): void {
   const view = main();
   view.innerHTML = "";
+
   const pane = document.createElement("section");
   pane.className = "notebook";
   view.append(pane);
+
+  if (BROWSER_KERNELS) {
+    const banner = node(
+      "div",
+      "nb-local-banner",
+      "Running locally in your browser — no server involved.",
+    );
+    pane.append(banner);
+    new BrowserNotebook(pane);
+    return;
+  }
+
   new NotebookView(pane);
 }
 
