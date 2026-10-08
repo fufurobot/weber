@@ -1,0 +1,32 @@
+# Keep the image context small. Every byte here is uploaded on every deploy.
+#
+# node_modules and dist are rebuilt inside the image, so shipping them from the
+# host only slows the build and can smuggle in a platform-specific binary.
+
+node_modules
+**/node_modules
+
+dist
+**/dist
+
+.git
+.github
+
+# Local state that must never reach an image.
+.env
+.env.*
+*.log
+
+# Tests and docs are not needed at runtime. They stay in the repository, which
+# is what matters for review; the image only needs to serve.
+tests
+docs
+deploy
+chart
+
+# Editor and OS noise.
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.swp

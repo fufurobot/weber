@@ -11,7 +11,18 @@ import { parseAllowedLogins } from "./auth";
 import { createStaticHandler } from "./static";
 
 const host = process.env.CORE_HOST ?? "0.0.0.0";
-const port = Number(process.env.CORE_PORT ?? 8787);
+
+/**
+ * Port resolution, in precedence order.
+ *
+ * `PORT` comes first because PaaS platforms (Heroku, Render, Railway) inject
+ * it and route to it. Binding anything else there means the router never
+ * reaches the app, and the symptom is a request timeout with nothing in the
+ * log — an expensive thing to debug from scratch.
+ *
+ * `CORE_PORT` remains the compose and standalone setting.
+ */
+const port = Number(process.env.PORT ?? process.env.CORE_PORT ?? 8787);
 const workspaceRoot = process.env.WORKSPACE_ROOT ?? "/workspaces";
 const webOrigin = process.env.WEB_ORIGIN ?? "*";
 const version = process.env.WEBER_VERSION ?? "0.1.0";
@@ -31,7 +42,9 @@ const sessionSecret = process.env.WEBER_SESSION_SECRET ?? "";
 const authEnabled = githubClientId.length > 0 && allowedLogins.length > 0;
 
 if (!Number.isFinite(port) || port <= 0 || port > 65535) {
-  console.error(`invalid CORE_PORT: ${process.env.CORE_PORT}`);
+  console.error(
+    `invalid port: PORT=${process.env.PORT ?? "(unset)"} CORE_PORT=${process.env.CORE_PORT ?? "(unset)"}`,
+  );
   process.exit(1);
 }
 

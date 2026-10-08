@@ -1,0 +1,46 @@
+{
+  "name": "weber",
+  "description": "A portable IDE for TypeScript, Rust, C++ and Python — in your browser.",
+  "keywords": ["ide", "notebook", "typescript", "rust", "python"],
+  "website": "https://github.com/fufurobot/weber",
+  "repository": "https://github.com/fufurobot/weber",
+  "logo": "https://raw.githubusercontent.com/fufurobot/weber/main/web/logo.svg",
+  "stack": "container",
+  "env": {
+    "GITHUB_CLIENT_ID": {
+      "description": "Client ID of a GitHub OAuth app with Device Flow enabled. Required for sign-in; without it the deployment is unauthenticated.",
+      "required": false
+    },
+    "WEBER_ALLOWED_LOGINS": {
+      "description": "Comma-separated GitHub logins permitted to sign in. An empty list denies everyone. Required alongside GITHUB_CLIENT_ID.",
+      "required": false
+    },
+    "WEBER_SESSION_SECRET": {
+      "description": "Secret used to sign session cookies, at least 16 characters. Generate with: head -c 32 /dev/urandom | base64",
+      "generator": "secret",
+      "required": false
+    },
+    "WORKSPACE_ROOT": {
+      "description": "Directory holding user projects. On an ephemeral filesystem this is wiped on every restart and deploy.",
+      "value": "/workspaces",
+      "required": false
+    },
+    "WEBER_SEED": {
+      "description": "Seed a starter workspace on first boot, so a new visitor sees something rather than an empty tree. Set to 0 to boot empty.",
+      "value": "1",
+      "required": false
+    },
+    "WEBER_SESSION_HOURS": {
+      "description": "How long a signed-in session lasts, in hours.",
+      "value": "12",
+      "required": false
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "buildpacks": []
+}

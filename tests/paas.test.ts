@@ -44,9 +44,23 @@ describe("single-image Dockerfile", () => {
 
   test("respects the platform's PORT variable", () => {
     // Heroku assigns PORT at runtime; binding a hardcoded port means the
-    // router never reaches the app.
-    const src = read(path);
-    expect(src).toMatch(/\$\{?PORT/);
+    // router never reaches the app, and the symptom is a timeout with no error.
+    //
+    // Asserted against the server, not the Dockerfile: that is where the
+    // decision is actually made, and a Dockerfile mentioning PORT proves
+    // nothing about whether it is honoured.
+    expect(read("src/server/main.ts")).toMatch(/process\.env\.PORT/);
+  });
+
+  test("PORT takes precedence over CORE_PORT", () => {
+    const src = read("src/server/main.ts");
+    const portLine = src.split("\n").find((l) => l.includes("process.env.PORT"))!;
+    expect(portLine).toMatch(/process\.env\.PORT\s*\?\?/);
+    expect(portLine).toMatch(/CORE_PORT/);
+  });
+
+  test("the healthcheck honours the platform port too", () => {
+    expect(read(path)).toMatch(/process\.env\.PORT\|\|/);
   });
 
   test("binds 0.0.0.0, not loopback", () => {
