@@ -109,6 +109,12 @@ service-account*.json
 .nuxt
 dist
 
+# Browser smoke test artifacts. The screenshot is uploaded by CI as a build
+# artifact rather than committed; it only exists to explain a failure.
+browser-smoke.png
+playwright-report/
+test-results/
+
 # Gatsby files
 .cache/
 # Comment in the public line in if your project uses Gatsby and *not* Next.js

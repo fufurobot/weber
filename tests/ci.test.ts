@@ -54,7 +54,16 @@ describe("workflow structure", () => {
 
   test("declares every job the project needs", () => {
     const jobs = jobNames();
-    for (const expected of ["test", "e2e", "compose", "compose-up", "chart", "combined", "build-images"]) {
+    for (const expected of [
+      "test",
+      "e2e",
+      "compose",
+      "compose-up",
+      "chart",
+      "combined",
+      "build-images",
+      "browser",
+    ]) {
       expect(jobs).toContain(expected);
     }
   });

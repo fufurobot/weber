@@ -241,6 +241,38 @@ jobs:
             docker logs "$c" 2>&1 | tail -40 || true
           done
 
+  browser:
+    name: The SPA renders in a real browser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile || bun install
+
+      # A real Chromium, because the point is to execute the bundle. Every
+      # previous UI claim was an HTTP check, and all of them pass for a bundle
+      # that throws on its first line.
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+
+      # Runs the compose build, NOT build:pages. The Pages build aliases the
+      # API to a mock, so testing against it would prove the fixture renders.
+      - name: Run the browser smoke test
+        run: bun run browser:smoke
+
+      - name: Upload the screenshot on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-smoke-failure
+          path: browser-smoke.png
+          if-no-files-found: ignore
+
   e2e:
     name: Spawn-dependent tests
     runs-on: ubuntu-latest

@@ -13,6 +13,7 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:e2e": "bun run scripts/test-e2e.ts tests/exec.test.ts",
+    "browser:smoke": "bun run scripts/browser-smoke.ts",
     "validate:config": "bun run scripts/validate-config.ts",
     "issues:dry-run": "bun run scripts/file-issues.ts --dry-run",
     "issues:file": "bun run scripts/file-issues.ts",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "playwright": "^1.48.0",
     "typescript": "^5.6.0"
   }
 }
