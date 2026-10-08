@@ -16,6 +16,7 @@
  * These are hard limits, not tuning knobs, so the UI states them instead of
  * letting a user conclude the emulator is broken.
  */
+import { imageUrl } from "./images";
 
 export type Arch = "i386";
 
@@ -24,11 +25,14 @@ export interface V86Profile {
   label: string;
   /** v86 cannot boot 64-bit kernels, so this is always i386. */
   arch: Arch;
-  /** URL of the disk image. */
-  imageUrl: string;
-  /** Approximate download size, surfaced so the wait is expected. */
-  approxSizeMb: number;
-  /** Extra images the profile needs to boot. */
+  /**
+   * Extra images the profile needs to boot.
+   *
+   * The disk image itself is NOT here: it is a release asset resolved at
+   * runtime by `images.ts`, because a 320 MB file cannot live in git. Keeping
+   * the two apart means there is exactly one place that knows where images
+   * come from.
+   */
   bios?: { url: string };
   vgaBios?: { url: string };
   /** Default kernel command line, if the image is booted as a bzImage. */
@@ -43,6 +47,8 @@ export interface V86Profile {
   minMemoryGb: number;
   /** Memory the VM itself is given, in MiB. */
   vmMemoryMb: number;
+  /** Download size, surfaced so the wait is expected rather than mysterious. */
+  approxSizeMb: number;
 }
 
 export const PROFILES: V86Profile[] = [
@@ -50,9 +56,8 @@ export const PROFILES: V86Profile[] = [
     id: "toolchain",
     label: "Linux with Rust and C/C++ (32-bit)",
     arch: "i386",
-    // A Buildroot image is the supported way to get a small, bootable system;
-    // a full distribution is several hundred MB before a toolchain is added.
-    imageUrl: "images/weber-toolchain-32.iso",
+    // Buildroot is the supported way to get a small bootable system; a full
+    // distribution is several hundred MB before a toolchain is added.
     approxSizeMb: 320,
     bios: { url: "bios/seabios.bin" },
     vgaBios: { url: "bios/vgabios.bin" },
@@ -67,7 +72,6 @@ export const PROFILES: V86Profile[] = [
     arch: "i386",
     // Useful as a fallback: it boots quickly and proves the emulator works
     // before committing a user to a 320 MB download.
-    imageUrl: "images/linux.iso",
     approxSizeMb: 12,
     bios: { url: "bios/seabios.bin" },
     vgaBios: { url: "bios/vgabios.bin" },
@@ -141,11 +145,12 @@ export function describeProfile(id: string): ProfileDescription {
       caveats: [`No v86 profile named "${id}" is configured.`],
     };
   }
+  // The image URL is resolved separately, since it points at a release asset.
   return {
     id: profile.id,
     label: profile.label,
     available: true,
-    imageUrl: profile.imageUrl,
+    imageUrl: imageUrl(profile.id) ?? "",
     caveats: [...(CAVEATS[profile.id] ?? [])],
   };
 }

@@ -28,8 +28,17 @@ describe("profile selection", () => {
   test("reports every profile's required features", () => {
     for (const p of PROFILES) {
       expect(p.requiresSharedArrayBuffer).toBeDefined();
-      expect(p.imageUrl.length).toBeGreaterThan(0);
       expect(p.approxSizeMb).toBeGreaterThan(0);
+    }
+  });
+
+  test("profiles do not carry a disk image path", () => {
+    // The image is a release asset resolved by images.ts. Keeping the path out
+    // of the profile means there is exactly one place that knows where images
+    // come from, rather than one per profile.
+    for (const p of PROFILES) {
+      expect((p as { imageUrl?: string }).imageUrl).toBeUndefined();
+      expect(describeProfile(p.id).imageUrl).toMatch(/^https:\/\//);
     }
   });
 
