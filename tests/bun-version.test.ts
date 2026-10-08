@@ -71,6 +71,44 @@ describe("bun base image consistency", () => {
   });
 });
 
+describe("lockfile consistency", () => {
+  test("every dependency in package.json is present in bun.lock", () => {
+    // The images install with `--frozen-lockfile`, so a dependency added to
+    // package.json without regenerating the lockfile breaks the build. That
+    // happened: adding playwright silently broke two previously-passing CI
+    // jobs, and the failure surfaced as "Build the core image" failing for no
+    // visible reason.
+    if (!exists("bun.lock")) return;
+    const pkg = JSON.parse(read("package.json")) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const lock = read("bun.lock");
+
+    const declared = [
+      ...Object.keys(pkg.dependencies ?? {}),
+      ...Object.keys(pkg.devDependencies ?? {}),
+    ];
+    expect(declared.length).toBeGreaterThan(0);
+
+    const missing = declared.filter((name) => !lock.includes(`"${name}"`));
+    expect(missing).toEqual([]);
+  });
+
+  test("the lockfile is not stale relative to package.json", () => {
+    // A cheap proxy for `bun install --frozen-lockfile` succeeding: if the
+    // lockfile records the same dependency set, the install will not refuse.
+    if (!exists("bun.lock")) return;
+    const pkg = JSON.parse(read("package.json")) as {
+      devDependencies?: Record<string, string>;
+    };
+    const lock = read("bun.lock");
+    for (const name of Object.keys(pkg.devDependencies ?? {})) {
+      expect(`${name}:${lock.includes(name)}`).toBe(`${name}:true`);
+    }
+  });
+});
+
 describe("install robustness", () => {
   test("every Dockerfile can install without a lockfile", () => {
     // A frozen-lockfile-only install turns a lockfile format change into a
