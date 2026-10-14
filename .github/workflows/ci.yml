@@ -2,9 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [dev, main]
   pull_request:
-    branches: [main]
+    branches: [dev, main]
+  release:
+    types: [published]
   workflow_dispatch:
 
 concurrency:
@@ -57,6 +59,7 @@ jobs:
   # works, and the failure mode here is a request timeout with no log entry.
   combined:
     name: Combined-mode deployment works
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main') || github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -134,6 +137,7 @@ jobs:
 
   build-images:
     name: Build and smoke-test every image
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main') || github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -243,6 +247,7 @@ jobs:
 
   browser:
     name: The SPA renders in a real browser
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main') || github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -275,6 +280,7 @@ jobs:
 
   e2e:
     name: Spawn-dependent tests
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main') || github.event_name == 'release'
     runs-on: ubuntu-latest
     needs: test
     steps:
@@ -293,6 +299,7 @@ jobs:
 
   compose:
     name: Compose config validates
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main') || github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -328,6 +335,7 @@ jobs:
 
   compose-up:
     name: Compose stack runs end to end
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main') || github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -401,6 +409,7 @@ jobs:
 
   chart:
     name: Helm chart renders and refuses unsafe config
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main') || github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -455,3 +464,30 @@ jobs:
             --set dsh.enabled=true > /tmp/full.yaml
           echo "ok: full configuration renders"
           grep -c 'kind: Deployment' /tmp/full.yaml
+
+  release-artifacts:
+    name: Attach web bundle to release
+    if: github.event_name == 'release' && github.event.action == 'published'
+    needs: [test, combined, build-images, browser, e2e, compose, compose-up, chart]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Build and archive the web app
+        run: |
+          bun run build:web
+          tar -czf weber-web.tar.gz -C dist/web .
+
+      - name: Attach bundle to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" weber-web.tar.gz --clobber
