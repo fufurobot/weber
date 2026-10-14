@@ -52,6 +52,19 @@ describe("workflow structure", () => {
     expect(keys).toContain("jobs");
   });
 
+  test("runs fast checks on dev and the full suite on main and releases", () => {
+    expect(src).toMatch(/push:\s*\n\s+branches:\s*\[dev, main\]/);
+    expect(src).toMatch(/pull_request:\s*\n\s+branches:\s*\[dev, main\]/);
+    expect(src.match(/^    if: github\.ref == 'refs\/heads\/main'.*github\.event_name == 'release'$/gm)?.length)
+      .toBeGreaterThanOrEqual(7);
+  });
+
+  test("published releases attach a downloadable frontend artifact", () => {
+    expect(src).toMatch(/release:\s*\n\s+types:\s*\[published\]/);
+    expect(src).toMatch(/release-artifacts:/);
+    expect(src).toMatch(/gh release upload/);
+  });
+
   test("declares every job the project needs", () => {
     const jobs = jobNames();
     for (const expected of [
@@ -130,6 +143,12 @@ describe("workflow structure", () => {
 });
 
 describe("safety assertions", () => {
+  test("Dependabot updates cover npm and GitHub Actions", () => {
+    const config = readFileSync(join(ROOT, ".github", "dependabot.yml"), "utf8");
+    expect(config).toMatch(/package-ecosystem: npm/);
+    expect(config).toMatch(/package-ecosystem: github-actions/);
+  });
+
   test("typecheck blocks the build rather than advising", () => {
     // It was advisory once, and in that window it caught a real unreachable
     // branch that tests passed over. A check that cannot fail is not a check.
