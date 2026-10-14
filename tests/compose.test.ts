@@ -137,6 +137,21 @@ describe("edge routing contract", () => {
 });
 
 describe("core service contract", () => {
+  test("root environment template documents configuration without credentials", () => {
+    const env = read(".env.example");
+    expect(env).toMatch(/^WEB_PORT=3000$/m);
+    expect(env).toMatch(/^GITHUB_CLIENT_ID=$/m);
+    expect(env).toMatch(/^WEBER_SESSION_SECRET=$/m);
+    expect(env).toMatch(/^GITHUB_TOKEN=$/m);
+  });
+
+  test("environment files are ignored while example templates stay trackable", () => {
+    const gitignore = read(".gitignore");
+    expect(gitignore).toMatch(/^\.env$/m);
+    expect(gitignore).toMatch(/^\.env\.\*$/m);
+    expect(gitignore).toMatch(/^!\.env\.example$/m);
+  });
+
   test("the core declares the port nginx proxies to", () => {
     const env = read("compose/.env.example");
     expect(env).toMatch(/CORE_PORT=8787/);

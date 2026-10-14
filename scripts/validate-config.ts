@@ -40,7 +40,7 @@ console.log("CI workflow");
   const src = readFileSync(".github/workflows/ci.yml", "utf8");
   const jobs = sectionKeys(src, "jobs");
   check("declares test, e2e and compose jobs", ["test", "e2e", "compose"].every((j) => jobs.includes(j)), jobs.join(","));
-  check("runs on pushes to main", /branches:\s*\[main\]/.test(src));
+  check("runs on pushes to dev and main", /push:\s*\n\s+branches:\s*\[dev, main\]/.test(src));
   check("runs the hermetic suite", /run:\s*bun test\b/.test(src));
   check("runs the spawn-dependent suite", /bun run test:e2e/.test(src));
   check("no stray tab indentation", !/\t/.test(src));
