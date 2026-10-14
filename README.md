@@ -13,215 +13,38 @@
 Weber is a **portable, browser-based IDE** that brings a complete development environment to any device with a web browser. It combines the power of a full-featured IDE with the flexibility of reactive notebooks, giving you two distinct modes of work:
 
 - **Project Mode** — A full IDE experience with file trees, terminals, Git integration, and the entire VS Code plugin ecosystem. Think of it as your development environment, accessible from anywhere.
-- **Script Mode** — A reactive notebook experience inspired by [Observable HQ](https://observablehq.com/) and [Marimo](https://marimo.io/), where cells automatically react to changes, keeping your code and outputs in sync.
-
-Whether you're writing Rust for WebAssembly, prototyping in Python with Pyodide, building TypeScript applications, or compiling C++ with clang and wasmchain — Weber runs it all.
+- **Notebook Mode** — A reactive notebook experience inspired by [Observable HQ](https://observablehq.com/) and [Marimo](https://marimo.io/), where cells automatically react to changes, keeping your code and outputs in sync. You can turn On/Off reactive mode as you wish. 
+- **Script Mode** - A Plain IDE like LeetCode but under ACM mode to just run code. 
 
 ---
 
 ## Why Weber?
 
-| Problem | Weber's Solution |
-|---------|------------------|
-| Setting up dev environments is painful | Zero setup — just open a browser |
-| Local IDEs are heavy and machine-bound | Portable — runs on any device, anywhere |
-| Notebooks are great for exploration but weak for serious projects | **Project Mode** gives you a full IDE when you need it |
-| IDEs are great for projects but overkill for quick experiments | **Script Mode** gives you reactive notebooks for rapid prototyping |
-| Polyglot development requires juggling multiple tools | One IDE for TypeScript, Rust, C++, and Python |
-
----
+weber is an all in one solution that supports almost everything you can imagine. It is based on the helm chart of https://github.com/ml-tooling/ml-hub, but migrated to podman-compose.yml and apptainer for rootless deployment. 
 
 ## Features
 
-### 🌐 Portable & Everywhere
-- Runs entirely in your browser — no installation, no local dependencies
-- Deployable on any web server with a single command
-- Works on desktop, tablet, or even phone
+- An unified multi-user system with OAuth to connect to any services. We integrate Github OAuth for easy access. 
+- Built-in [SSH-proxy](https://github.com/ml-tooling/ssh-proxy) support: you can ssh to your remote VM any time you want.
+- Runnable by apptainer: no tedious helm chart configuration
+- Centralized self-hosted Gitlab Community Instance and Gitlab CI: your project is always properly managed
+- An extra Judge0 Server for Script Mode
+- A Port Panel for your machine that expose your port to host by HTTP(s) on `<FQDN>:<PORT>/<username>/vm/<vmid>/port/<expose-port>`, so you can share your work with others quickly
+- An Coder server with Collarbrative editing plugin enabled for project mode
+- Reactive kernel for Almost every language under Notebook mode: beyond observablehq and marimo
+- A jhipster JDL designer and wizard to help you bootstrap your project quickly, without. 
+- An llama.cpp/vllm/vllm-omni manager to help you manage deployed local GGUF/huggingface models. auto detect backend by checking *-smi commands on all pods.
+- Deepseek Harness Web is properly configured with the llama.cpp/vllm manager per vm by default.
+- Role based AAA system with users and groups
+- [harbor](https://github.com/laude-institute/harbor) is also set for harness benchmarking on models in the manager. A [base dataset]
+- MLFlow to manage experiment artifacts, embedded inside Notebook Mode.
+- A hybrid object storage based on [OpenList](https://github.com/OpenListTeam/OpenList) which has been configured with Gitlab git LFS / Annex support, pod vm image storage, GGUF/huggingface models storage, huggingface dataset storage and MLFlow experiment storage, and every large sized things you can imagine
 
-### 🚀 Multi-Language Support
-- **TypeScript/JavaScript** — Full language server support with Bun runtime
-- **Rust** — `cargo` and `rustc` integration, WASM compilation target
-- **C/C++** — `clang` + `clangd` with wasmchain for WebAssembly builds
-- **Python** — [Pyodide](https://pyodide.org/) runs Python 3.x entirely in the browser
-
-### 📦 VS Code Plugin Ecosystem
-- Full compatibility with VS Code extensions
-- Language Server Protocol (LSP) support for IntelliSense across all languages
-- Install plugins directly from the built-in marketplace
-
-### 🔄 Two Modes, One Tool
-
-**Project Mode** — Full IDE:
-- File tree explorer
-- Integrated terminal
-- Git version control
-- VS Code plugin ecosystem
-- Project-level configuration
-
-**Script Mode** — Reactive Notebook:
-- Cell-based editing with automatic reactivity
-- Code and outputs stay in sync — change one cell, dependent cells auto-update
-- Mix Markdown and code in the same notebook
-- Export notebooks as standalone scripts or apps
-
-### ⚡ Built on Bun
-- Lightning-fast startup and execution
-- Bun's native Shell (`bun:shell`) for running `cargo`, `clang`, and other build tools
-- Built-in TypeScript support without extra configuration
-
----
-
-## Quick Start
-
-### With a container runtime (recommended)
-
-```bash
-git clone https://github.com/fufurobot/weber.git
-cd weber
-
-cp compose/.env.example compose/.env
-
-# nginx edge + Bun core
-podman-compose up --build
-```
-
-Then open `http://localhost:3000`.
-
-### Directly on Bun
-
-```bash
-bun install
-
-# Terminal 1 — the core service
-CORE_PORT=8787 WORKSPACE_ROOT=./workspaces bun run dev
-
-# Terminal 2 — the frontend
-bun run build:web
-```
-
-### Tests
-
-```bash
-bun test              # hermetic: unit and policy tests
-bun run test:e2e      # tests that spawn real processes
-```
-
-> **Status:** the core services, HTTP API and frontend shell are implemented
-> and tested. Monaco, LSP integration and Pyodide are not yet built, and the
-> container images have not been built on a real runtime. See
-> [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for an honest account of
-> what works, and [docs/ISSUES.md](docs/ISSUES.md) for what is outstanding.
-
-### Deploy Anywhere
-
-Weber is just static files + a Bun backend. Deploy it on:
-
-- Any static web server (nginx, Apache, etc.)
-- Cloud platforms (Vercel, Netlify, Cloudflare Pages)
-- Self-hosted on your own infrastructure
-- Even on a Raspberry Pi — it's that lightweight
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                         Browser                             │
-│  ┌─────────────────┐  ┌──────────────────────────────────┐  │
-│  │   Project Mode   │  │         Script Mode             │  │
-│  │  (VS Code-like)  │  │    (Reactive Notebook)          │  │
-│  └────────┬────────┘  └───────────────┬──────────────────┘  │
-│           │                            │                     │
-│           └────────────┬───────────────┘                     │
-│                        │                                     │
-│              ┌─────────▼─────────┐                          │
-│              │   Monaco Editor   │                          │
-│              │   (VS Code core)  │                          │
-│              └─────────┬─────────┘                          │
-└────────────────────────┼────────────────────────────────────┘
-                         │ WebSocket / HTTP
-┌────────────────────────▼────────────────────────────────────┐
-│                      Bun Backend                            │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
-│  │  Language    │  │   Build      │  │   AI Completion  │  │
-│  │  Servers     │  │   Runner     │  │   (Ollama/OpenAI)│  │
-│  │  (LSP)       │  │ (cargo/clang)│  └──────────────────┘  │
-│  └──────────────┘  └──────────────┘                        │
-└─────────────────────────────────────────────────────────────┘
-                         │
-              ┌──────────▼──────────┐
-              │  External Tools     │
-              │  cargo · rustc      │
-              │  clang · wasmchain  │
-              │  Pyodide (WASM)     │
-              └─────────────────────┘
-```
-
----
-
-## Technology Stack
-
-| Component | Technology |
-|-----------|------------|
-| **Runtime** | Bun |
-| **Frontend** | React + shadcn/ui |
-| **Editor Core** | Monaco Editor (VS Code's editor) |
-| **Backend** | Bun + WebSockets |
-| **Python** | Pyodide (WebAssembly CPython) |
-| **Rust** | cargo, rustc, wasm-pack |
-| **C/C++** | clang, clangd, wasmchain |
-| **AI** | Ollama (local) / OpenAI API |
-| **License** | AGPL-3.0 |
-
----
-
-## Related Work
-
-Weber builds on the shoulders of giants and draws inspiration from:
-
-- **[Observable HQ](https://observablehq.com/)** — Reactive JavaScript notebooks
-- **[Marimo](https://marimo.io/)** — Reactive Python notebooks
-- **[JupyterLite](https://github.com/jupyterlite/jupyterlite)** — JupyterLab in the browser
-- **[Pyodide](https://pyodide.org/)** — Python in the browser via WebAssembly
-- **[code-server](https://github.com/coder/code-server)** — VS Code in the browser
-- **[PyIDE](https://github.com/onlylonly/pyide)** — Browser-based Python IDE with Pyodide
-
----
 
 ## License
 
-Weber is released under the **GNU Affero General Public License v3.0** (AGPL-3.0).
+[AGPL](./LICENSE). This means you need to provide source for any modified verision of this web service to users.
 
-This means:
-- You can use, modify, and distribute Weber freely
-- Any modifications you make and distribute must also be open-sourced under AGPL
-- If you run Weber as a network service, you must make the source code available to your users
-
-See the [LICENSE](LICENSE) file for full details.
-
----
-
-## Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-Areas where we especially need help:
-- More language integrations
-- Performance optimizations for the reactive notebook engine
-- Plugin ecosystem expansion
-- Documentation and tutorials
-
----
-
-## Roadmap
-
-- [ ] Full VS Code extension marketplace integration
-- [ ] Collaborative editing (multiplayer)
-- [ ] More language support (Go, Zig, etc.)
-- [ ] Built-in AI pair programming
-- [ ] Mobile-optimized interface
-- [ ] Offline mode with Service Workers
 
 ---
 
